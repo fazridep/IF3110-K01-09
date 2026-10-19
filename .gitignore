@@ -1,0 +1,16 @@
+.idea/
+.vscode/
+
+.env
+.env.local
+*.local
+
+bin/
+*.out
+*.test
+coverage.*
+
+data/
+
+tmp/
+*.log
