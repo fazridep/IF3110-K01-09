@@ -1,5 +1,4 @@
-
-.PHONY: run build test fmt vet db-up db-down db-logs migrate seed clean
+.PHONY: run build test test-db-up fmt vet db-up db-down db-logs migrate seed clean
 
 run:
 	go run ./cmd/server
@@ -9,6 +8,9 @@ build:
 
 test:
 	go test ./...
+
+test-db-up:
+	docker compose up -d db-test
 
 fmt:
 	gofmt -w .
