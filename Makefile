@@ -1,5 +1,7 @@
 .PHONY: run build test test-db-up fmt vet db-up db-down db-logs migrate seed clean
 
+export TEST_DATABASE_URL ?= postgres://test:test@localhost:5437/platform_test?sslmode=disable
+
 run:
 	go run ./cmd/server
 
@@ -7,7 +9,7 @@ build:
 	go build -o bin/server ./cmd/server
 
 test:
-	go test ./...
+	go test -count=1 ./...
 
 test-db-up:
 	docker compose up -d db-test

@@ -1,6 +1,6 @@
 # Progress Tubes IF3110 - Database Management Platform
 
-Terakhir diupdate: **19 Oktober 2026** (rapikan pembagian + struktur)
+Terakhir diupdate: **20 Oktober 2026** (review + perbaikan auth)
 
 Deadline Milestone 1: 25 Oktober 2026, 13.10 WIB.
 
@@ -33,20 +33,23 @@ Template ikut fitur di `web/templates/<fitur>/`, layout di `web/templates/layout
 ## Hari 1 (19-20 Okt): Fondasi + Kontrak
 
 - [ ] **Semua:** sepakati kontrak (lihat bawah), tulis signature + stub-nya, merge ke main
-- [ ] **Fazri:** `store` (pool dari `METADATA_DB_URL`, helper tx) + perintah `migrate`
-- [ ] **Kak Ardell:** `config`, router + layout + helper render di `web`
-- [ ] **Zahran:** `testutil` (konek `TEST_DATABASE_URL`, jalanin migration, reset data)
+- [x] **Fazri:** `store` (pool dari `METADATA_DB_URL`) + perintah `migrate`
+- [ ] **Fazri:** helper transaction di `store`
+- [x] **Kak Ardell:** `config`, router + layout + helper render di `web`
+- [x] **Zahran:** `testutil` (konek `TEST_DATABASE_URL`, jalanin migration, schema per test)
 - [ ] **Dzakwan:** draft schema tabel users/groups/grant bareng Kak Ardell & Fazri biar FK-nya nyambung
 
 ### Kontrak antar bagian
 
 Fungsi yang dipanggil lintas package. Selama implementasi belum jadi, pakai mock dulu.
+ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 
 | Package | Fungsi | Dipakai oleh |
 |---------|--------|--------------|
-| `auth` | `RequireLogin` (middleware), `CurrentUser(ctx)` | semua handler |
-| `auth` | `RevokeUserSessions(ctx, userID)` | admin (saat akses dicabut / user dinonaktifkan) |
-| `auth` | `CSRFToken(r)` | template semua fitur |
+| `auth` | `(*Store).RequireLogin` (middleware), `CurrentUser(ctx)` | semua handler |
+| `auth` | `(*Store).RevokeUserSessions(ctx, userID)` | admin (saat akses dicabut / user dinonaktifkan) |
+| `auth` | `(*Store).ForceRotate(ctx, userID)` | admin (saat user dijadikan Platform Admin) |
+| `web` | `(*Renderer).Render(w, r, "fitur/halaman", data)` | semua handler yang nampilin halaman |
 | `access` | `IsPlatformAdmin(ctx, userID)`, `RequirePlatformAdmin` | admin, dbmgmt |
 | `access` | `EffectiveLevel(ctx, userID, dbID)`, `RequireDBAccess(level)` | dbmgmt, migration |
 | `dbmgmt` | `Pool(ctx, dbID)` (koneksi ke db target) | migration |
@@ -55,15 +58,16 @@ Fungsi yang dipanggil lintas package. Selama implementasi belum jadi, pakai mock
 
 ### 1. Kak Ardell - Identitas & Session
 
-- [ ] halaman login, pesan error jangan bedain username vs password
-- [ ] hash password (argon2id)
-- [ ] session di db (yang disimpan hash-nya), cookie `sid` HttpOnly, SameSite, Secure kalau production
-- [ ] idle timeout 30 menit, absolute 8 jam
-- [ ] rotasi id saat login / naik privilege / tiap 15 menit, grace 30 detik, rotasi nggak memperpanjang absolute
-- [ ] logout + `RevokeUserSessions` matiin session di db
-- [ ] CSRF buat semua request yang ngubah data
-- [ ] password & sid nggak boleh muncul di URL, response, atau log
-- [ ] perintah `seed-admin`
+- [x] halaman login, pesan error jangan bedain username vs password
+- [x] hash password (argon2id)
+- [x] session di db (yang disimpan hash-nya), cookie `sid` HttpOnly, SameSite, Secure kalau production
+- [x] idle timeout 30 menit, absolute 8 jam
+- [x] rotasi id saat login / naik privilege / tiap 15 menit, grace 30 detik, rotasi nggak memperpanjang absolute
+- [x] logout + `RevokeUserSessions` matiin session di db
+- [x] CSRF buat semua request yang ngubah data
+- [x] password & sid nggak boleh muncul di URL, response, atau log
+- [x] perintah `seed-admin`
+- [x] unit + integration test session, login, logout, CSRF
 
 ### 2. Dzakwan - Izin & Platform Admin
 
@@ -95,31 +99,24 @@ Fungsi yang dipanggil lintas package. Selama implementasi belum jadi, pakai mock
 - [ ] tolak statement yang nggak boleh jalan di transaction (mis. `CREATE INDEX CONCURRENTLY`)
 - [ ] cuma view_edit yang boleh bikin, ubah, dan jalanin; view_only cuma lihat
 
-## Keputusan yang harus didokumentasikan
+## Keputusan desain
 
-Nanti dipindah ke `README.md`.
-
-| Hal | Keputusan |
-|-----|-----------|
-| Akses efektif dari banyak group | level tertinggi menang (`view_edit` > `view_only`), nggak ada deny |
-| Idle timeout | 30 menit |
-| Absolute expiration | 8 jam sejak login, nggak diperpanjang rotasi |
-| Interval rotasi | 15 menit, plus saat login dan naik privilege |
-| Grace period id lama | 30 detik |
-
-## Frontend
-
-Go `html/template` + HTMX, CSS pakai Pico.css, editor SQL pakai CodeMirror 6 (atau `<textarea>` dulu).
+Semua ada di [`docs/DECISION.md`](docs/DECISION.md): struktur, akses efektif,
+session, CSRF, migration metadata, frontend, dan cara integration test.
+Kalau bikin keputusan baru, tambahin ADR di sana.
 
 ## Tes
 
 Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak.
 
 - [ ] unit test per fitur
-- [ ] integration test pakai `make test-db-up` + `internal/testutil`
+- [ ] integration test pakai `make test-db-up` + `testutil.DB(t)`
 - [ ] `go test ./...` hijau sebelum kumpul
 
 ## Log
 
 - 19 Okt (Fazri): inisiasi struktur, postgres 18, pembagian 4 bagian
 - 19 Okt (Zahran): rapikan struktur, pembagian ulang, kontrak antar bagian, db-test
+- 20 Okt (Kak Ardell): login, session, CSRF, seed-admin, config, router
+- 20 Okt (Zahran): review auth, fix rotasi session yang bisa bikin ke-logout, layout template,
+  runner `migrate`, `testutil`, test auth, `docs/DECISION.md`
