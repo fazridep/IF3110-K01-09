@@ -1,16 +1,12 @@
 package auth_test
+
 import (
-	"testing"
 	"github.com/if3110/tubes-db-platform/internal/auth"
+	"testing"
 )
 
-// untuk testing password
-
 func TestHashPasswordNotEmpty(t *testing.T) {
-	hash, err := auth.HashPassword("rahasia123")
-	if err != nil {
-		t.Fatalf("HashPassword gagal: %v", err)
-	}
+	hash := auth.HashPassword("rahasia123")
 	if hash == "" {
 		t.Fatal("hash tidak boleh kosong")
 	}
@@ -20,25 +16,22 @@ func TestHashPasswordNotEmpty(t *testing.T) {
 }
 
 func TestHashPasswordDifferentSalt(t *testing.T) {
-	h1, _ := auth.HashPassword("sama")
-	h2, _ := auth.HashPassword("sama")
+	h1 := auth.HashPassword("sama")
+	h2 := auth.HashPassword("sama")
 	if h1 == h2 {
 		t.Fatal("dua hash dari plaintext sama seharusnya berbeda (salt acak)")
 	}
 }
 
 func TestVerifyPasswordValid(t *testing.T) {
-	hash, err := auth.HashPassword("password-kuat!")
-	if err != nil {
-		t.Fatalf("HashPassword: %v", err)
-	}
-	if err = auth.VerifyPassword(hash, "password-kuat!"); err != nil {
+	hash := auth.HashPassword("password-kuat!")
+	if err := auth.VerifyPassword(hash, "password-kuat!"); err != nil {
 		t.Fatalf("VerifyPassword seharusnya berhasil: %v", err)
 	}
 }
 
 func TestVerifyPasswordWrongPassword(t *testing.T) {
-	hash, _ := auth.HashPassword("benar")
+	hash := auth.HashPassword("benar")
 	err := auth.VerifyPassword(hash, "salah")
 	if err == nil {
 		t.Fatal("VerifyPassword seharusnya gagal untuk password yang salah")
@@ -46,7 +39,7 @@ func TestVerifyPasswordWrongPassword(t *testing.T) {
 }
 
 func TestVerifyPasswordEmptyPassword(t *testing.T) {
-	hash, _ := auth.HashPassword("tidak-kosong")
+	hash := auth.HashPassword("tidak-kosong")
 	err := auth.VerifyPassword(hash, "")
 	if err == nil {
 		t.Fatal("password kosong seharusnya ditolak")
