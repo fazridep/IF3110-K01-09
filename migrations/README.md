@@ -1,7 +1,8 @@
 # Migrations
 
 `metadata/` berisi migration schema database **platform** (users, groups,
-sessions, dst), dijalankan lewat `make migrate`.
+sessions, dst), dijalankan lewat `make migrate`. Versi yang sudah jalan dicatat
+di tabel `schema_migrations`, jadi `make migrate` aman diulang.
 
 Ini beda dengan fitur migration untuk database **target** di
 `internal/migration` (yang dibuat user lewat UI).
@@ -22,4 +23,7 @@ masing-masing biar nggak tabrakan:
 Urutan ini sengaja ngikutin foreign key (grant butuh users dan
 database_connections udah ada duluan).
 
-Format: `NNNN_deskripsi.up.sql` (dan `.down.sql` kalau perlu).
+Format: `NNNN_deskripsi.up.sql` (dan `.down.sql` kalau perlu, tapi cuma buat
+referensi manual, nggak dijalankan runner).
+
+File yang sudah di-merge ke `dev` jangan diedit lagi, bikin file baru.
