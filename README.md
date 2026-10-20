@@ -2,12 +2,6 @@
 
 Tugas Besar IF3110 Milestone 1, kelompok K01-09.
 
-## Kebutuhan
-
-- Go 1.26+
-- Docker Desktop. Kalau pakai WSL, aktifkan *Settings > Resources > WSL integration*
-  untuk distro yang dipakai.
-
 ## Menjalankan
 
 ```bash
@@ -25,7 +19,7 @@ make test-db-up   # postgres khusus tes (5437)
 make test
 ```
 
-Tanpa `db-test`, integration test di-skip dan cuma unit test yang jalan.
+Kalau cuma mau unit test tanpa database, jalankan `go test ./...`.
 
 ## Dokumentasi
 
