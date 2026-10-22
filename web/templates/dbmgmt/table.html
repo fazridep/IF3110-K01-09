@@ -1,0 +1,95 @@
+{{define "title"}}{{.Data.Detail.Table}}{{end}}
+
+{{define "content"}}
+<p><a href="/databases/{{.Data.Connection.ID}}">&larr; {{.Data.Connection.Name}}</a></p>
+
+<hgroup>
+  <h1>{{.Data.Detail.Table}}</h1>
+  <p>Schema {{.Data.Detail.Schema}} &middot; {{.Data.Connection.Name}}</p>
+</hgroup>
+
+<section>
+  <h2>Kolom</h2>
+  <table>
+    <thead><tr><th>Nama</th><th>Tipe</th><th>Null</th><th>Default</th></tr></thead>
+    <tbody>
+      {{range .Data.Detail.Columns}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td><code>{{.DataType}}</code></td>
+        <td>{{if .Nullable}}ya{{else}}tidak{{end}}</td>
+        <td>{{if .Default}}<code>{{.Default}}</code>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+
+{{if .Data.Detail.Constraints}}
+<section>
+  <h2>Constraint</h2>
+  <table>
+    <thead><tr><th>Nama</th><th>Jenis</th><th>Definisi</th></tr></thead>
+    <tbody>
+      {{range .Data.Detail.Constraints}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Kind}}</td>
+        <td><code>{{.Definition}}</code></td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{if .Data.Detail.Indexes}}
+<section>
+  <h2>Index</h2>
+  <table>
+    <thead><tr><th>Nama</th><th>Jenis</th><th>Definisi</th></tr></thead>
+    <tbody>
+      {{range .Data.Detail.Indexes}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if .Primary}}primary{{else if .Unique}}unique{{else}}biasa{{end}}</td>
+        <td><code>{{.Definition}}</code></td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+<section>
+  <h2>Data</h2>
+  {{if .Data.Rows.Columns}}
+  <div style="overflow-x: auto">
+    <table>
+      <thead>
+        <tr>{{range .Data.Rows.Columns}}<th>{{.}}</th>{{end}}</tr>
+      </thead>
+      <tbody>
+        {{range .Data.Rows.Rows}}
+        <tr>{{range .}}<td>{{if .Null}}<em>NULL</em>{{else}}{{.Value}}{{end}}</td>{{end}}</tr>
+        {{else}}
+        <tr><td colspan="{{len .Data.Rows.Columns}}">Tabel masih kosong.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if gt .Data.Rows.Pages 0}}
+  <nav>
+    <ul>
+      <li>{{if gt .Data.Rows.Page 1}}<a href="{{.Data.BaseURL}}?page={{.Data.PrevPage}}">&larr; Sebelumnya</a>{{end}}</li>
+    </ul>
+    <small>Halaman {{.Data.Rows.Page}} dari {{.Data.Rows.Pages}} &middot; {{.Data.Rows.Total}} baris</small>
+    <ul>
+      <li>{{if lt .Data.Rows.Page .Data.Rows.Pages}}<a href="{{.Data.BaseURL}}?page={{.Data.NextPage}}">Berikutnya &rarr;</a>{{end}}</li>
+    </ul>
+  </nav>
+  {{end}}
+</section>
+{{end}}

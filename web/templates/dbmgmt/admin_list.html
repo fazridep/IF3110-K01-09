@@ -1,0 +1,32 @@
+{{define "title"}}Kelola Koneksi{{end}}
+
+{{define "content"}}
+<hgroup>
+  <h1>Koneksi Database</h1>
+  <p>Database target yang bisa diakses lewat platform.</p>
+</hgroup>
+
+{{with .Data.Notice}}<article><p>{{.}}</p></article>{{end}}
+
+<p><a href="/admin/databases/new" role="button">Tambah koneksi</a></p>
+
+{{if .Data.Connections}}
+<table>
+  <thead>
+    <tr><th>Nama</th><th>Server</th><th>Dibuat</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Connections}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td><code>{{.Host}}:{{.Port}}/{{.Database}}</code></td>
+      <td>{{.CreatedAt.Format "02 Jan 2006 15:04"}}</td>
+      <td><a href="/admin/databases/{{.ID}}">Detail</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p>Belum ada koneksi. Tambah satu dulu biar bisa dipakai.</p>
+{{end}}
+{{end}}

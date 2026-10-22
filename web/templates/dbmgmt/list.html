@@ -1,0 +1,28 @@
+{{define "title"}}Database{{end}}
+
+{{define "content"}}
+<hgroup>
+  <h1>Database</h1>
+  <p>Database yang bisa kamu akses.</p>
+</hgroup>
+
+{{if .Data.Items}}
+<table>
+  <thead>
+    <tr><th>Nama</th><th>Server</th><th>Akses</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Items}}
+    <tr>
+      <td>{{.Connection.Name}}</td>
+      <td><code>{{.Connection.Host}}:{{.Connection.Port}}/{{.Connection.Database}}</code></td>
+      <td>{{if eq .Level "view_edit"}}View + Edit{{else}}View Only{{end}}</td>
+      <td><a href="/databases/{{.Connection.ID}}">Buka</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p>Belum ada database yang bisa kamu akses. Minta Platform Admin menambahkannya lewat group.</p>
+{{end}}
+{{end}}

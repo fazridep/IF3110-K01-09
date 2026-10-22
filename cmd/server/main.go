@@ -10,12 +10,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
+	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
 	"github.com/if3110/tubes-db-platform/internal/store"
 	"github.com/if3110/tubes-db-platform/internal/web"
 	"github.com/if3110/tubes-db-platform/migrations"
@@ -61,7 +63,29 @@ func runServer(cfg *config.Config) {
 		Secure:           cfg.IsProduction(),
 	})
 	authHandler := auth.NewHandler(db, sessions, view)
-	handler := web.NewRouter(sessions, authHandler, view, cfg.IsProduction())
+
+	cipher, err := dbmgmt.NewCipher(cfg.CredentialEncryptionKey)
+	if err != nil {
+		log.Fatalf("%v\nisi CREDENTIAL_ENCRYPTION_KEY di .env, bikin dengan: openssl rand -base64 32", err)
+	}
+	dbStore := dbmgmt.NewStore(db, cipher)
+	pools := dbmgmt.NewManager(dbStore)
+	defer pools.Close()
+
+	// TODO(access): package access belum ada di dev, jadi sementara cek admin
+	// pakai field dari session dan akses database ditutup. Begitu access
+	// di-merge, ganti dua fungsi ini dengan access.IsPlatformAdmin dan
+	// adapter access.EffectiveLevel (ADR-001).
+	isAdmin := func(ctx context.Context, userID uuid.UUID) (bool, error) {
+		u := auth.CurrentUser(ctx)
+		return u != nil && u.ID == userID && u.IsPlatformAdmin, nil
+	}
+	level := func(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+		return dbmgmt.LevelNone, nil
+	}
+	dbHandler := dbmgmt.NewHandler(dbStore, pools, view, isAdmin, level)
+
+	handler := web.NewRouter(sessions, authHandler, dbHandler.RegisterRoutes, view, cfg.IsProduction())
 
 	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
 	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))

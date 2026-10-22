@@ -130,3 +130,43 @@ migration metadata di situ, lalu hapus schema-nya setelah test selesai. Kalau
 
 Akibat: test nggak saling ganggu dan nggak perlu reset data manual. Waktu di
 `auth.Store` bisa diatur lewat field `now`, jadi test timeout nggak perlu `sleep`.
+
+## ADR-008 Kredensial koneksi target pakai AES-GCM
+
+Status: diterima, 22 Okt
+
+Konteks: Platform Admin menyimpan host, port, username, dan password database
+target di database metadata. Password itu nggak boleh kebaca cuma gara-gara
+dump metadata bocor, dan nggak boleh ikut ke log.
+
+Keputusan:
+- Password dienkripsi AES-256-GCM sebelum masuk kolom `password_enc`.
+- Kunci diambil dari `CREDENTIAL_ENCRYPTION_KEY` (base64, 32 byte) di env,
+  bukan disimpan di database.
+- Nonce acak tiap enkripsi, jadi password yang sama hasil ciphertext-nya beda.
+- Server menolak start kalau kunci kosong atau panjangnya salah. `migrate` dan
+  `seed-admin` tetap jalan tanpa kunci.
+- Pool ke database target di-cache per koneksi, dan dibuang kalau koneksi
+  diubah atau dihapus supaya credential baru langsung kepakai.
+- Pesan error koneksi cuma menyebut host, port, dan nama database. Password
+  nggak pernah masuk error atau log.
+
+Akibat: backup metadata harus disimpan bareng kuncinya, di tempat terpisah.
+Kalau kunci diganti, kredensial lama nggak bisa dibuka dan admin harus input
+ulang password-nya.
+
+## ADR-009 dbmgmt menunggu access lewat fungsi yang di-inject
+
+Status: sementara, 22 Okt (diganti begitu `internal/access` di-merge)
+
+Konteks: `dbmgmt` butuh dua hal dari `access`: apakah user Platform Admin, dan
+level aksesnya ke satu database. Package `access` belum ada waktu dbmgmt
+dikerjakan, jadi import langsung bakal bikin build pecah.
+
+Keputusan: `dbmgmt.NewHandler` menerima `AdminChecker` dan `LevelResolver`
+(fungsi biasa), bukan import `access`. Di `main.go` sementara diisi cek
+`IsPlatformAdmin` dari session dan resolver yang selalu "tanpa akses".
+
+Akibat: `/admin/databases` sudah bisa dipakai, tapi `/databases` masih kosong
+sampai `access` di-merge. Penggantiannya cuma dua fungsi di `runServer`, handler
+nggak perlu diubah.
