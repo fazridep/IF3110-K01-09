@@ -224,6 +224,7 @@ func (h *Handler) adminTestInput(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderFormError(w http.ResponseWriter, r *http.Request, isEdit bool, id string, in Input, err error) {
 	page := adminFormPage{IsEdit: isEdit, ID: id, Input: in, Error: err.Error()}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	switch {
 	case errors.Is(err, ErrDuplicateName):
 		w.WriteHeader(http.StatusConflict)
@@ -443,6 +444,7 @@ func (h *Handler) serverError(w http.ResponseWriter, r *http.Request, err error)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	h.view.Render(w, r, "dbmgmt/error", struct{ Message string }{msg})
 }
