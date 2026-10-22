@@ -52,6 +52,7 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 | `web` | `(*Renderer).Render(w, r, "fitur/halaman", data)` | semua handler yang nampilin halaman |
 | `access` | `IsPlatformAdmin(ctx, userID)`, `RequirePlatformAdmin` | admin, dbmgmt |
 | `access` | `EffectiveLevel(ctx, userID, dbID)`, `RequireDBAccess(level)` | dbmgmt, migration |
+| `access` | `CanView(ctx, userID, dbID)`, `CanEdit(ctx, userID, dbID)` balikin bool | migration |
 | `dbmgmt` | `Pool(ctx, dbID)` (koneksi ke db target) | migration |
 
 ## Detail tugas

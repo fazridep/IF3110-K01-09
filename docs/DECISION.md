@@ -170,3 +170,38 @@ Keputusan: `dbmgmt.NewHandler` menerima `AdminChecker` dan `LevelResolver`
 Akibat: `/admin/databases` sudah bisa dipakai, tapi `/databases` masih kosong
 sampai `access` di-merge. Penggantiannya cuma dua fungsi di `runServer`, handler
 nggak perlu diubah.
+
+## ADR-010 Siklus hidup migration database target
+
+Status: diusulkan, 20 Okt
+
+Konteks: spesifikasi minta riwayat migration linear per database, lengkap dengan
+versi, SQL, pelaksana, waktu, dan status. Eksekusinya harus dalam transaction,
+dan cuma user `view_edit` yang boleh bikin, ubah, dan jalanin.
+
+Keputusan:
+- Disimpan di tabel `database_migrations`. Status `draft -> running -> success | failed`.
+- Versi dikasih waktu draft dibuat, yaitu versi terakhir di database itu + 1.
+  Per database cuma boleh ada satu migration `draft` atau `running` (unique index
+  parsial), jadi riwayatnya nggak bercabang.
+- Draft masih boleh diedit. Setelah dijalankan, record-nya nggak bisa diubah lagi.
+  Yang gagal tetap tercatat `failed` beserta error-nya, perbaikannya dibuat
+  sebagai migration baru.
+- Waktu execute, status diubah ke `running` dengan syarat masih `draft`, jadi
+  klik dua kali cuma jalan sekali. SQL-nya dijalankan di database target dalam
+  satu transaction yang pegang `pg_advisory_xact_lock`. Sukses di-commit, gagal
+  di-rollback, lalu hasilnya disimpan.
+- SQL dicek dulu sebelum disimpan dan sebelum dijalankan (`CheckSQL`). Yang
+  ditolak: `CONCURRENTLY` (kecuali `REFRESH MATERIALIZED VIEW`), `VACUUM`,
+  `CREATE/DROP DATABASE`, `CREATE/DROP TABLESPACE`, `ALTER SYSTEM`, dan
+  `BEGIN`/`COMMIT`/`ROLLBACK`.
+- FK `database_id` ke `database_connections` sengaja tanpa CASCADE. Koneksi yang
+  sudah punya riwayat migration nggak bisa dihapus, biar riwayatnya nggak hilang.
+- Package `migration` nggak import `access` dan `dbmgmt`. Yang dibutuhkan ditulis
+  sebagai interface `Permissions` (`CanView`, `CanEdit`) dan `Targets` (`Pool`),
+  terus disambungkan di `main.go`.
+
+Akibat: riwayat bisa berisi migration `failed`, dan itu disengaja biar percobaan
+yang gagal tetap kelihatan. Kalau server mati di tengah eksekusi, transaction di
+database target otomatis rollback, tapi record-nya bisa nyangkut di `running`
+dan harus dibenerin manual.
