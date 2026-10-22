@@ -39,6 +39,12 @@ func withUser(ctx context.Context, u *User) context.Context {
 	return context.WithValue(ctx, ctxUser, u)
 }
 
+// WithUser menaruh user di context. Dipakai test yang memanggil handler
+// langsung, tanpa lewat middleware RequireLogin.
+func WithUser(ctx context.Context, u *User) context.Context {
+	return withUser(ctx, u)
+}
+
 func withCSRFToken(ctx context.Context, t string) context.Context {
 	return context.WithValue(ctx, ctxCSRF, t)
 }
