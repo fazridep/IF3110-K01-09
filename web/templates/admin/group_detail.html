@@ -75,13 +75,19 @@
 
 <h2>Akses Database</h2>
 
+{{if .Data.Databases}}
 <details>
   <summary role="button" class="outline">+ Tambah / Ubah Akses</summary>
   <form method="post" action="/admin/groups/{{.Data.Group.ID}}/grants">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <label>
-      Database ID
-      <input name="database_id" required placeholder="UUID database target">
+      Database
+      <select name="database_id" required>
+        <option value="">— pilih database —</option>
+        {{range .Data.Databases}}
+        <option value="{{.ID}}">{{.Name}}</option>
+        {{end}}
+      </select>
     </label>
     <label>
       Level
@@ -93,11 +99,14 @@
     <button type="submit">Simpan</button>
   </form>
 </details>
+{{else}}
+<p>Belum ada koneksi database. Tambah dulu di <a href="/admin/databases">Koneksi Database</a>.</p>
+{{end}}
 
 <table>
   <thead>
     <tr>
-      <th>Database ID</th>
+      <th>Database</th>
       <th>Level</th>
       <th>Diberikan</th>
       <th>Aksi</th>
@@ -106,7 +115,7 @@
   <tbody>
     {{range .Data.Grants}}
     <tr>
-      <td><code>{{.DatabaseID}}</code></td>
+      <td>{{.DatabaseName}}</td>
       <td>{{.Level}}</td>
       <td>{{.GrantedAt.Format "2006-01-02 15:04"}}</td>
       <td>

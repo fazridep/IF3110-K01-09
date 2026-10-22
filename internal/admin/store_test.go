@@ -2,11 +2,13 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/testutil"
 )
 
@@ -15,6 +17,20 @@ func seedUser(t *testing.T, db *pgxpool.Pool, username string) uuid.UUID {
 	var id uuid.UUID
 	err := db.QueryRow(context.Background(),
 		`INSERT INTO users (username, password_hash) VALUES ($1, 'x') RETURNING id`, username,
+	).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func seedDatabase(t *testing.T, db *pgxpool.Pool, name string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := db.QueryRow(context.Background(), `
+		INSERT INTO database_connections (name, host, db_name, username, password_enc)
+		VALUES ($1, 'localhost', $1, 'app', '\x00')
+		RETURNING id`, name,
 	).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +62,57 @@ func TestListUsersReturnsAll(t *testing.T) {
 	}
 	if len(users) != 2 {
 		t.Errorf("mau 2 users, dapat %d", len(users))
+	}
+}
+
+func TestCreateUser(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	id, err := s.CreateUser(ctx, "  gina ", "rahasia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.GetUser(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Username != "gina" || u.IsPlatformAdmin {
+		t.Errorf("user salah: %+v", u)
+	}
+
+	var hash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, id).Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.VerifyPassword(hash, "rahasia"); err != nil {
+		t.Errorf("password nggak cocok: %v", err)
+	}
+
+	if _, err := s.CreateUser(ctx, "gina", "lain"); !errors.Is(err, ErrUsernameTaken) {
+		t.Errorf("username dobel: mau ErrUsernameTaken, dapat %v", err)
+	}
+	if _, err := s.CreateUser(ctx, " ", "x"); !errors.Is(err, ErrInvalidUser) {
+		t.Errorf("username kosong: mau ErrInvalidUser, dapat %v", err)
+	}
+	if _, err := s.CreateUser(ctx, "hana", ""); !errors.Is(err, ErrInvalidUser) {
+		t.Errorf("password kosong: mau ErrInvalidUser, dapat %v", err)
+	}
+}
+
+func TestListDatabases(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	seedDatabase(t, db, "toko")
+	seedDatabase(t, db, "gudang")
+
+	dbs, err := s.ListDatabases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dbs) != 2 || dbs[0].Name != "gudang" || dbs[1].Name != "toko" {
+		t.Errorf("daftar database salah: %+v", dbs)
 	}
 }
 
@@ -185,7 +252,7 @@ func TestGrantSetAndRevoke(t *testing.T) {
 	ctx := context.Background()
 
 	groupID, _ := s.CreateGroup(ctx, "testers", "")
-	dbID := uuid.New()
+	dbID := seedDatabase(t, db, "toko")
 
 	// Set grant
 	if err := s.SetGrant(ctx, groupID, dbID, "view_only"); err != nil {
@@ -195,7 +262,7 @@ func TestGrantSetAndRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grants) != 1 || grants[0].Level != "view_only" {
+	if len(grants) != 1 || grants[0].Level != "view_only" || grants[0].DatabaseName != "toko" {
 		t.Errorf("grant salah: %+v", grants)
 	}
 
@@ -231,7 +298,9 @@ func TestDeleteGroupCascadesMembers(t *testing.T) {
 	groupID, _ := s.CreateGroup(ctx, "temp", "")
 	userID := seedUser(t, db, "frank")
 	s.AddMember(ctx, groupID, userID)
-	s.SetGrant(ctx, groupID, uuid.New(), "view_only")
+	if err := s.SetGrant(ctx, groupID, seedDatabase(t, db, "toko"), "view_only"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Delete group → members dan grants ikut terhapus (ON DELETE CASCADE)
 	if err := s.DeleteGroup(ctx, groupID); err != nil {

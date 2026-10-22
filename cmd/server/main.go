@@ -74,28 +74,24 @@ func runServer(cfg *config.Config) {
 	pools := dbmgmt.NewManager(dbStore)
 	defer pools.Close()
 
-	// TODO(access): package access belum ada di dev, jadi sementara cek admin
-	// pakai field dari session dan akses database ditutup. Begitu access
-	// di-merge, ganti dua fungsi ini dengan access.IsPlatformAdmin dan
-	// adapter access.EffectiveLevel (ADR-001).
+	// Adapter dari access ke tipe fungsi dbmgmt (ADR-009).
+	perms := access.NewStore(db)
 	isAdmin := func(ctx context.Context, userID uuid.UUID) (bool, error) {
 		u := auth.CurrentUser(ctx)
-		return u != nil && u.ID == userID && u.IsPlatformAdmin, nil
+		return u != nil && u.ID == userID && access.IsPlatformAdmin(ctx), nil
 	}
-	level := func(context.Context, uuid.UUID, uuid.UUID) (string, error) {
-		return dbmgmt.LevelNone, nil
+	level := func(ctx context.Context, userID, dbID uuid.UUID) (string, error) {
+		l, err := perms.EffectiveLevel(ctx, userID, dbID)
+		return string(l), err
 	}
 	dbHandler := dbmgmt.NewHandler(dbStore, pools, view, isAdmin, level)
-
 
 	adminStore := admin.NewStore(db)
 	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
 
 	register := func(mux *http.ServeMux) {
 		dbHandler.RegisterRoutes(mux)
-		adminMux := http.NewServeMux()
-		adminHandler.RegisterRoutes(adminMux)
-		mux.Handle("/admin/", access.RequirePlatformAdmin(adminMux))
+		adminHandler.RegisterRoutes(mux)
 	}
 	handler := web.NewRouter(sessions, authHandler, register, view, cfg.IsProduction())
 

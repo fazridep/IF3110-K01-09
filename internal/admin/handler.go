@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 )
 
@@ -28,40 +30,76 @@ func NewHandler(db *pgxpool.Pool, store *Store, sessions *auth.Store, view Rende
 	return &Handler{db: db, store: store, sessions: sessions, view: view}
 }
 
+// RegisterRoutes mendaftarkan halaman admin. Semuanya lewat
+// access.RequirePlatformAdmin.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	admin := http.NewServeMux()
+
 	// Users
-	mux.HandleFunc("GET /admin/users", h.ListUsers)
-	mux.HandleFunc("POST /admin/users/{id}/toggle-admin", h.ToggleAdmin)
+	admin.HandleFunc("GET /admin/users", h.ListUsers)
+	admin.HandleFunc("POST /admin/users", h.CreateUser)
+	admin.HandleFunc("POST /admin/users/{id}/toggle-admin", h.ToggleAdmin)
 
 	// Groups
-	mux.HandleFunc("GET /admin/groups", h.ListGroups)
-	mux.HandleFunc("POST /admin/groups", h.CreateGroup)
-	mux.HandleFunc("GET /admin/groups/{id}", h.ShowGroup)
-	mux.HandleFunc("POST /admin/groups/{id}", h.UpdateGroup)
-	mux.HandleFunc("POST /admin/groups/{id}/delete", h.DeleteGroup)
+	admin.HandleFunc("GET /admin/groups", h.ListGroups)
+	admin.HandleFunc("POST /admin/groups", h.CreateGroup)
+	admin.HandleFunc("GET /admin/groups/{id}", h.ShowGroup)
+	admin.HandleFunc("POST /admin/groups/{id}", h.UpdateGroup)
+	admin.HandleFunc("POST /admin/groups/{id}/delete", h.DeleteGroup)
 
 	// Members
-	mux.HandleFunc("POST /admin/groups/{id}/members", h.AddMember)
-	mux.HandleFunc("POST /admin/groups/{id}/members/{userID}/remove", h.RemoveMember)
+	admin.HandleFunc("POST /admin/groups/{id}/members", h.AddMember)
+	admin.HandleFunc("POST /admin/groups/{id}/members/{userID}/remove", h.RemoveMember)
 
 	// Grants
-	mux.HandleFunc("POST /admin/groups/{id}/grants", h.SetGrant)
-	mux.HandleFunc("POST /admin/groups/{id}/grants/{dbID}/revoke", h.RevokeGrant)
+	admin.HandleFunc("POST /admin/groups/{id}/grants", h.SetGrant)
+	admin.HandleFunc("POST /admin/groups/{id}/grants/{dbID}/revoke", h.RevokeGrant)
+
+	guard := access.RequirePlatformAdmin(admin)
+	for _, p := range []string{"/admin/users", "/admin/users/", "/admin/groups", "/admin/groups/"} {
+		mux.Handle(p, guard)
+	}
 }
 
 // --- User handlers ---
 
 type usersPage struct {
-	Users []User
+	Users    []User
+	Error    string
+	Username string
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	h.renderUsers(w, r, http.StatusOK, usersPage{})
+}
+
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	username := r.FormValue("username")
+	_, err := h.store.CreateUser(r.Context(), username, r.FormValue("password"))
+	switch {
+	case errors.Is(err, ErrUsernameTaken):
+		h.renderUsers(w, r, http.StatusConflict, usersPage{Error: "Username sudah dipakai.", Username: username})
+	case errors.Is(err, ErrInvalidUser):
+		h.renderUsers(w, r, http.StatusBadRequest, usersPage{Error: "Username dan password wajib diisi.", Username: username})
+	case err != nil:
+		serverError(w, err)
+	default:
+		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+	}
+}
+
+func (h *Handler) renderUsers(w http.ResponseWriter, r *http.Request, status int, page usersPage) {
 	users, err := h.store.ListUsers(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	h.view.Render(w, r, "admin/users", usersPage{Users: users})
+	page.Users = users
+	if status != http.StatusOK {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+	}
+	h.view.Render(w, r, "admin/users", page)
 }
 
 func (h *Handler) ToggleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +161,7 @@ type groupDetailPage struct {
 	Members    []Member
 	NonMembers []User
 	Grants     []Grant
+	Databases  []Database
 }
 
 func (h *Handler) ListGroups(w http.ResponseWriter, r *http.Request) {
@@ -181,12 +220,18 @@ func (h *Handler) ShowGroup(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	databases, err := h.store.ListDatabases(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 
 	h.view.Render(w, r, "admin/group_detail", groupDetailPage{
 		Group:      group,
 		Members:    members,
 		NonMembers: nonMembers,
 		Grants:     grants,
+		Databases:  databases,
 	})
 }
 

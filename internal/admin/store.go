@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/if3110/tubes-db-platform/internal/auth"
 )
 
 // --- Model ---
@@ -41,12 +43,24 @@ type Member struct {
 }
 
 type Grant struct {
-	GroupID    uuid.UUID
-	GroupName  string
-	DatabaseID uuid.UUID
-	Level      string
-	GrantedAt  time.Time
+	GroupID      uuid.UUID
+	GroupName    string
+	DatabaseID   uuid.UUID
+	DatabaseName string
+	Level        string
+	GrantedAt    time.Time
 }
+
+// Database cuma id dan nama koneksi, buat pilihan di form grant.
+type Database struct {
+	ID   uuid.UUID
+	Name string
+}
+
+var (
+	ErrUsernameTaken = errors.New("admin: username sudah dipakai")
+	ErrInvalidUser   = errors.New("admin: username dan password wajib diisi")
+)
 
 // --- Store ---
 
@@ -93,6 +107,27 @@ func (s *Store) GetUser(ctx context.Context, id uuid.UUID) (*User, error) {
 		return nil, fmt.Errorf("admin: get user: %w", err)
 	}
 	return u, nil
+}
+
+// CreateUser bikin user biasa. Jadi admin lewat toggle di halaman users.
+func (s *Store) CreateUser(ctx context.Context, username, password string) (uuid.UUID, error) {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return uuid.Nil, ErrInvalidUser
+	}
+	var id uuid.UUID
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash) VALUES ($1, $2)
+		ON CONFLICT (username) DO NOTHING
+		RETURNING id`, username, auth.HashPassword(password),
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrUsernameTaken
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("admin: buat user: %w", err)
+	}
+	return id, nil
 }
 
 func (s *Store) SetPlatformAdmin(ctx context.Context, userID uuid.UUID, isAdmin bool) error {
@@ -254,10 +289,11 @@ func (s *Store) RemoveMember(ctx context.Context, groupID, userID uuid.UUID) err
 
 func (s *Store) ListGrants(ctx context.Context, groupID uuid.UUID) ([]Grant, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT group_id, database_id, level, granted_at
-		FROM group_database_access
-		WHERE group_id = $1
-		ORDER BY granted_at`, groupID)
+		SELECT gda.group_id, gda.database_id, dc.name, gda.level, gda.granted_at
+		FROM group_database_access gda
+		JOIN database_connections dc ON dc.id = gda.database_id
+		WHERE gda.group_id = $1
+		ORDER BY dc.name`, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("admin: list grants: %w", err)
 	}
@@ -266,12 +302,24 @@ func (s *Store) ListGrants(ctx context.Context, groupID uuid.UUID) ([]Grant, err
 	var grants []Grant
 	for rows.Next() {
 		var g Grant
-		if err := rows.Scan(&g.GroupID, &g.DatabaseID, &g.Level, &g.GrantedAt); err != nil {
+		if err := rows.Scan(&g.GroupID, &g.DatabaseID, &g.DatabaseName, &g.Level, &g.GrantedAt); err != nil {
 			return nil, fmt.Errorf("admin: scan grant: %w", err)
 		}
 		grants = append(grants, g)
 	}
 	return grants, rows.Err()
+}
+
+func (s *Store) ListDatabases(ctx context.Context) ([]Database, error) {
+	rows, err := s.db.Query(ctx, `SELECT id, name FROM database_connections ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("admin: list databases: %w", err)
+	}
+	dbs, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Database])
+	if err != nil {
+		return nil, fmt.Errorf("admin: scan database: %w", err)
+	}
+	return dbs, nil
 }
 
 func (s *Store) SetGrant(ctx context.Context, groupID, databaseID uuid.UUID, level string) error {

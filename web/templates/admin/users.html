@@ -2,6 +2,27 @@
 
 {{define "content"}}
 <h1>Users</h1>
+
+{{with .Data.Error}}<article><p>{{.}}</p></article>{{end}}
+
+<details{{if .Data.Error}} open{{end}}>
+  <summary role="button" class="outline">+ Tambah User</summary>
+  <form method="post" action="/admin/users">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="grid">
+      <label>
+        Username
+        <input name="username" value="{{.Data.Username}}" required autocomplete="off">
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" required autocomplete="new-password">
+      </label>
+    </div>
+    <button type="submit">Tambah</button>
+  </form>
+</details>
+
 <table>
   <thead>
     <tr>
