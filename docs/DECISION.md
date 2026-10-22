@@ -157,7 +157,7 @@ ulang password-nya.
 
 ## ADR-009 dbmgmt menunggu access lewat fungsi yang di-inject
 
-Status: sementara, 22 Okt (diganti begitu `internal/access` di-merge)
+Status: selesai, 22 Okt. Dua fungsi di `main.go` sudah disambung ke `access`.
 
 Konteks: `dbmgmt` butuh dua hal dari `access`: apakah user Platform Admin, dan
 level aksesnya ke satu database. Package `access` belum ada waktu dbmgmt
@@ -205,3 +205,17 @@ Akibat: riwayat bisa berisi migration `failed`, dan itu disengaja biar percobaan
 yang gagal tetap kelihatan. Kalau server mati di tengah eksekusi, transaction di
 database target otomatis rollback, tapi record-nya bisa nyangkut di `running`
 dan harus dibenerin manual.
+
+## ADR-011 Platform Admin bukan level akses database
+
+Status: diterima, 22 Okt
+
+Konteks: spesifikasi bilang Platform Admin mengelola user, group, koneksi, dan
+grant, tapi "bukan tingkatan akses terhadap suatu database".
+
+Keputusan: `access.EffectiveLevel` cuma ngitung dari grant group. Admin yang
+mau lihat isi database atau bikin migration harus masuk group yang punya akses,
+sama kayak user lain.
+
+Akibat: admin bisa ngatur `/admin/*` tanpa otomatis bisa baca data. Buat demo,
+admin perlu dimasukin ke group dulu.
