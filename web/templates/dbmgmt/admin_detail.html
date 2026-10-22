@@ -1,0 +1,40 @@
+{{define "title"}}Kelola Koneksi{{end}}
+
+{{define "content"}}
+<p><a href="/admin/databases">&larr; Semua koneksi</a></p>
+
+<hgroup>
+  <h1>{{.Data.Connection.Name}}</h1>
+  <p>Dibuat {{.Data.Connection.CreatedAt.Format "02 Jan 2006 15:04"}}, terakhir diubah {{.Data.Connection.UpdatedAt.Format "02 Jan 2006 15:04"}}</p>
+</hgroup>
+
+{{with .Data.Notice}}<article><p>{{.}}</p></article>{{end}}
+{{if eq .Data.TestStatus "ok"}}
+<article><p><ins>Koneksi berhasil.</ins></p></article>
+{{else if eq .Data.TestStatus "gagal"}}
+<article><p><strong>Koneksi gagal:</strong> {{.Data.TestMessage}}</p></article>
+{{end}}
+
+<table>
+  <tbody>
+    <tr><th>Host</th><td><code>{{.Data.Connection.Host}}:{{.Data.Connection.Port}}</code></td></tr>
+    <tr><th>Database</th><td><code>{{.Data.Connection.Database}}</code></td></tr>
+    <tr><th>Username</th><td><code>{{.Data.Connection.Username}}</code></td></tr>
+    <tr><th>sslmode</th><td><code>{{.Data.Connection.SSLMode}}</code></td></tr>
+    <tr><th>Password</th><td>tersimpan terenkripsi</td></tr>
+  </tbody>
+</table>
+
+<div class="grid">
+  <form method="post" action="/admin/databases/{{.Data.Connection.ID}}/test">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button type="submit" class="secondary">Tes koneksi</button>
+  </form>
+  <p><a href="/admin/databases/{{.Data.Connection.ID}}/edit" role="button" class="secondary outline">Ubah</a></p>
+  <form method="post" action="/admin/databases/{{.Data.Connection.ID}}/delete"
+        onsubmit="return confirm('Hapus koneksi ini? Grant dan riwayat migration yang memakainya juga ikut terhapus.')">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button type="submit" class="contrast">Hapus</button>
+  </form>
+</div>
+{{end}}

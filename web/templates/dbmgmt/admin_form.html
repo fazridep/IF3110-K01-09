@@ -1,0 +1,71 @@
+{{define "title"}}{{if .Data.IsEdit}}Ubah Koneksi{{else}}Koneksi Baru{{end}}{{end}}
+
+{{define "content"}}
+<p><a href="/admin/databases">&larr; Semua koneksi</a></p>
+
+<hgroup>
+  <h1>{{if .Data.IsEdit}}Ubah Koneksi{{else}}Koneksi Baru{{end}}</h1>
+  <p>Credential disimpan terenkripsi di database platform.</p>
+</hgroup>
+
+{{with .Data.Error}}<article><p><strong>{{.}}</strong></p></article>{{end}}
+{{if eq .Data.TestStatus "ok"}}
+<article><p><ins>Koneksi berhasil.</ins></p></article>
+{{else if eq .Data.TestStatus "gagal"}}
+<article><p><strong>Koneksi gagal:</strong> {{.Data.TestMessage}}</p></article>
+{{end}}
+
+<form method="post" action="{{if .Data.IsEdit}}/admin/databases/{{.Data.ID}}{{else}}/admin/databases{{end}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+  <label>Nama koneksi
+    <input name="name" value="{{.Data.Input.Name}}" required placeholder="misal: db-tugas-besar">
+  </label>
+
+  <div class="grid">
+    <label>Host
+      <input name="host" value="{{.Data.Input.Host}}" required placeholder="localhost">
+    </label>
+    <label>Port
+      <input name="port" type="number" min="1" max="65535" value="{{.Data.Input.Port}}">
+    </label>
+  </div>
+
+  <div class="grid">
+    <label>Database
+      <input name="db_name" value="{{.Data.Input.Database}}" required>
+    </label>
+    <label>Username
+      <input name="username" value="{{.Data.Input.Username}}" required>
+    </label>
+  </div>
+
+  <div class="grid">
+    <label>Password
+      <input name="password" type="password" autocomplete="new-password"
+             placeholder="{{if .Data.IsEdit}}kosongkan kalau nggak diubah{{end}}">
+    </label>
+    <label>sslmode
+      <select name="sslmode">
+        {{$mode := .Data.Input.SSLMode}}
+        <option value="disable" {{if eq $mode "disable"}}selected{{end}}>disable</option>
+        <option value="allow" {{if eq $mode "allow"}}selected{{end}}>allow</option>
+        <option value="prefer" {{if eq $mode "prefer"}}selected{{end}}>prefer</option>
+        <option value="require" {{if eq $mode "require"}}selected{{end}}>require</option>
+        <option value="verify-ca" {{if eq $mode "verify-ca"}}selected{{end}}>verify-ca</option>
+        <option value="verify-full" {{if eq $mode "verify-full"}}selected{{end}}>verify-full</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="grid">
+    <button type="submit">{{if .Data.IsEdit}}Simpan{{else}}Buat koneksi{{end}}</button>
+    <button type="submit" formaction="/admin/databases/test" formnovalidate class="secondary">
+      Tes koneksi
+    </button>
+  </div>
+
+  <input type="hidden" name="is_edit" value="{{if .Data.IsEdit}}1{{else}}0{{end}}">
+  <input type="hidden" name="id" value="{{.Data.ID}}">
+</form>
+{{end}}

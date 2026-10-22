@@ -12,6 +12,11 @@ type Config struct {
 	AppEnv        string
 	MetadataDBURL string
 
+	// CredentialEncryptionKey kunci AES-GCM buat password koneksi database
+	// target. Opsional di Load supaya `migrate` tetap jalan tanpa kunci ini;
+	// server yang mewajibkan (lihat main.go).
+	CredentialEncryptionKey string
+
 	SessionIdleTimeout      time.Duration
 	SessionAbsoluteTimeout  time.Duration
 	SessionRotationInterval time.Duration
@@ -24,9 +29,10 @@ func (c *Config) IsProduction() bool {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		AppPort:       envOr("APP_PORT", "8080"),
-		AppEnv:        envOr("APP_ENV", "development"),
-		MetadataDBURL: os.Getenv("METADATA_DB_URL"),
+		AppPort:                 envOr("APP_PORT", "8080"),
+		AppEnv:                  envOr("APP_ENV", "development"),
+		MetadataDBURL:           os.Getenv("METADATA_DB_URL"),
+		CredentialEncryptionKey: os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
 	}
 	if cfg.MetadataDBURL == "" {
 		return nil, errors.New("config: METADATA_DB_URL wajib diisi")
