@@ -1,6 +1,6 @@
 # Progress Tubes IF3110 - Database Management Platform
 
-Terakhir diupdate: **20 Oktober 2026** (review + perbaikan auth)
+Terakhir diupdate: **22 Oktober 2026** (dbmgmt)
 
 Deadline Milestone 1: 25 Oktober 2026, 13.10 WIB.
 
@@ -80,14 +80,19 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 
 ### 3. Fazri - Database Management
 
-- [ ] CRUD koneksi database target (cuma Platform Admin) + tombol test koneksi
-- [ ] enkripsi kredensial (AES-GCM, key dari `CREDENTIAL_ENCRYPTION_KEY`)
-- [ ] `Pool(ctx, dbID)`: koneksi ke db target pakai kredensial yang didekripsi
-- [ ] list database yang bisa diakses user
-- [ ] list schema dan table
-- [ ] detail table: column, constraint, index
-- [ ] viewer data + pagination
-- [ ] koneksi gagal / nggak punya akses -> pesan jelas, bukan 500 kosong
+- [x] CRUD koneksi database target (cuma Platform Admin) + tombol test koneksi
+- [x] enkripsi kredensial (AES-GCM, key dari `CREDENTIAL_ENCRYPTION_KEY`)
+- [x] `Pool(ctx, dbID)`: koneksi ke db target pakai kredensial yang didekripsi
+- [x] list database yang bisa diakses user
+- [x] list schema dan table
+- [x] detail table: column, constraint, index
+- [x] viewer data + pagination
+- [x] koneksi gagal / nggak punya akses -> pesan jelas, bukan 500 kosong
+
+Catatan: halaman `/databases` masih kosong karena `access.EffectiveLevel`
+belum ada. Sementara di `main.go` resolver-nya dibikin selalu "tanpa akses",
+jadi cuma `/admin/databases` yang bisa dipakai. Begitu access di-merge, tinggal
+ganti dua fungsi di `runServer` (lihat ADR-009).
 
 ### 4. Zahran - Migration
 
@@ -120,3 +125,6 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 20 Okt (Kak Ardell): login, session, CSRF, seed-admin, config, router
 - 20 Okt (Zahran): review auth, fix rotasi session yang bisa bikin ke-logout, layout template,
   runner `migrate`, `testutil`, test auth, `docs/DECISION.md`
+- 22 Okt (Fazri): migration `0200_database_connections`, CRUD koneksi + enkripsi AES-GCM,
+  pool ke db target, viewer schema/tabel/data dengan pagination, unit + integration test,
+  route `/admin/databases` dan `/databases`
