@@ -16,7 +16,13 @@
   {{with .User}}
   <header class="container">
     <nav>
-      <ul><li><strong>DB Platform</strong></li></ul>
+      <ul>
+        <li><strong><a href="/" style="text-decoration:none;color:inherit">DB Platform</a></strong></li>
+        {{if .IsPlatformAdmin}}
+        <li><a href="/admin/users">Users</a></li>
+        <li><a href="/admin/groups">Groups</a></li>
+        {{end}}
+      </ul>
       <ul>
         <li>{{.Username}}{{if .IsPlatformAdmin}} (Admin){{end}}</li>
         <li>
