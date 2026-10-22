@@ -1,6 +1,6 @@
 # Progress Tubes IF3110 - Database Management Platform
 
-Terakhir diupdate: **22 Oktober 2026** (dbmgmt)
+Terakhir diupdate: **22 Oktober 2026** (access + admin selesai)
 
 Deadline Milestone 1: 25 Oktober 2026, 13.10 WIB.
 
@@ -37,7 +37,7 @@ Template ikut fitur di `web/templates/<fitur>/`, layout di `web/templates/layout
 - [ ] **Fazri:** helper transaction di `store`
 - [x] **Kak Ardell:** `config`, router + layout + helper render di `web`
 - [x] **Zahran:** `testutil` (konek `TEST_DATABASE_URL`, jalanin migration, schema per test)
-- [ ] **Dzakwan:** draft schema tabel users/groups/grant bareng Kak Ardell & Fazri biar FK-nya nyambung
+- [x] **Dzakwan:** draft schema tabel users/groups/grant bareng Kak Ardell & Fazri biar FK-nya nyambung
 
 ### Kontrak antar bagian
 
@@ -72,12 +72,12 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 
 ### 2. Dzakwan - Izin & Platform Admin
 
-- [ ] hitung izin efektif user di banyak group (yang tertinggi menang, nggak ada deny)
-- [ ] `RequirePlatformAdmin` dan `RequireDBAccess(view_only | view_edit)`
-- [ ] halaman + handler: user, group, anggota group
-- [ ] grant level akses group per database (view_only / view_edit)
-- [ ] cabut akses / nonaktifkan user -> panggil `auth.RevokeUserSessions`
-- [ ] semua aksi admin dicek di backend, bukan cuma disembunyiin di UI
+- [x] hitung izin efektif user di banyak group (yang tertinggi menang, nggak ada deny)
+- [x] `RequirePlatformAdmin` dan `RequireDBAccess(view_only | view_edit)`
+- [x] halaman + handler: user, group, anggota group
+- [x] grant level akses group per database (view_only / view_edit)
+- [x] cabut akses / nonaktifkan user -> panggil `auth.RevokeUserSessions`
+- [x] semua aksi admin dicek di backend, bukan cuma disembunyiin di UI
 
 ### 3. Fazri - Database Management
 
@@ -129,3 +129,6 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 22 Okt (Fazri): migration `0200_database_connections`, CRUD koneksi + enkripsi AES-GCM,
   pool ke db target, viewer schema/tabel/data dengan pagination, unit + integration test,
   route `/admin/databases` dan `/databases`
+- 22 Okt (Dzakwan): migration 0300-0302 (groups, group_members, group_database_access),
+  package `access` (EffectiveLevel, RequirePlatformAdmin, RequireDBAccess),
+  package `admin` (CRUD user/group/member/grant, halaman admin), test access + admin
