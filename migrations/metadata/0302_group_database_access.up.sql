@@ -4,7 +4,7 @@
 
 CREATE TABLE group_database_access (
     group_id    UUID        NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    database_id UUID        NOT NULL,
+    database_id UUID        NOT NULL REFERENCES database_connections(id) ON DELETE CASCADE,
     level       TEXT        NOT NULL CHECK (level IN ('view_only', 'view_edit')),
     granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (group_id, database_id)

@@ -48,11 +48,8 @@ func IsPlatformAdmin(ctx context.Context) bool {
 }
 
 // EffectiveLevel menghitung level akses efektif user terhadap sebuah database.
-// Platform Admin otomatis dapat view_edit tanpa perlu masuk group.
+// Platform Admin juga harus lewat group (ADR-011).
 func (s *Store) EffectiveLevel(ctx context.Context, userID uuid.UUID, dbID uuid.UUID) (Level, error) {
-	if IsPlatformAdmin(ctx) {
-		return ViewEdit, nil
-	}
 	// MAX langsung pada TEXT akan salah karena 'view_only' > 'view_edit' secara
 	// alfabet. Kita konversi ke angka dulu baru MAX, lalu kembalikan ke TEXT.
 	var level *string

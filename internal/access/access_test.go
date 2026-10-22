@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/testutil"
 )
 
@@ -54,6 +55,20 @@ func setGrant(t *testing.T, db *pgxpool.Pool, groupID, dbID uuid.UUID, level str
 	}
 }
 
+func createDatabase(t *testing.T, db *pgxpool.Pool, name string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := db.QueryRow(context.Background(), `
+		INSERT INTO database_connections (name, host, db_name, username, password_enc)
+		VALUES ($1, 'localhost', $1, 'app', '\x00')
+		RETURNING id`, name,
+	).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func TestMeetsMinimum(t *testing.T) {
 	tests := []struct {
 		have, need Level
@@ -93,7 +108,7 @@ func TestEffectiveLevelFromGroup(t *testing.T) {
 	db := testutil.DB(t)
 	s := NewStore(db)
 	userID := createUser(t, db, "member", false)
-	dbID := uuid.New()
+	dbID := createDatabase(t, db, "toko")
 	groupID := createGroup(t, db, "devs")
 
 	addMember(t, db, groupID, userID)
@@ -112,7 +127,7 @@ func TestEffectiveLevelMaxAcrossGroups(t *testing.T) {
 	db := testutil.DB(t)
 	s := NewStore(db)
 	userID := createUser(t, db, "multi", false)
-	dbID := uuid.New()
+	dbID := createDatabase(t, db, "toko")
 
 	g1 := createGroup(t, db, "readers")
 	g2 := createGroup(t, db, "editors")
@@ -145,5 +160,56 @@ func TestRequirePlatformAdminBlocks(t *testing.T) {
 	}
 	if reached {
 		t.Error("handler tujuan nggak boleh dipanggil")
+	}
+}
+
+func TestEffectiveLevelAdminTanpaGroup(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	adminID := createUser(t, db, "admin", true)
+	dbID := createDatabase(t, db, "toko")
+
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: adminID, IsPlatformAdmin: true})
+	level, err := s.EffectiveLevel(ctx, adminID, dbID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if level != NoAccess {
+		t.Errorf("admin tanpa group mau NoAccess, dapat %q", level)
+	}
+}
+
+func TestGrantIkutTerhapusBarengKoneksi(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	userID := createUser(t, db, "member", false)
+	dbID := createDatabase(t, db, "toko")
+	groupID := createGroup(t, db, "devs")
+	addMember(t, db, groupID, userID)
+	setGrant(t, db, groupID, dbID, "view_edit")
+
+	if _, err := db.Exec(context.Background(), `DELETE FROM database_connections WHERE id = $1`, dbID); err != nil {
+		t.Fatal(err)
+	}
+	level, err := s.EffectiveLevel(context.Background(), userID, dbID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if level != NoAccess {
+		t.Errorf("grant harusnya ikut terhapus, dapat %q", level)
+	}
+}
+
+func TestRequirePlatformAdminLolos(t *testing.T) {
+	reached := false
+	handler := RequirePlatformAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+
+	req := httptest.NewRequest("GET", "/admin/users", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{ID: uuid.New(), IsPlatformAdmin: true}))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if !reached {
+		t.Error("admin harusnya diteruskan ke handler tujuan")
 	}
 }
