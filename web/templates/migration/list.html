@@ -1,0 +1,33 @@
+{{define "title"}}Migration{{end}}
+
+{{define "content"}}
+<hgroup>
+  <h1>Riwayat Migration</h1>
+  <p>Diurutkan dari versi terbaru.</p>
+</hgroup>
+
+{{if .Data.CanEdit}}
+<p><a href="/databases/{{.Data.DatabaseID}}/migrations/new" role="button">Buat migration</a></p>
+{{end}}
+
+{{with .Data.Migrations}}
+<table>
+  <thead>
+    <tr><th>Versi</th><th>Deskripsi</th><th>Status</th><th>Pelaksana</th><th>Selesai</th></tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr>
+      <td><a href="/migrations/{{.ID}}">v{{.Version}}</a></td>
+      <td>{{.Description}}</td>
+      <td>{{.Status}}</td>
+      <td>{{or .ExecutedBy "-"}}</td>
+      <td>{{with .FinishedAt}}{{.Format "2006-01-02 15:04"}}{{else}}-{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p>Belum ada migration di database ini.</p>
+{{end}}
+{{end}}

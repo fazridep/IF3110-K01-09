@@ -1,0 +1,18 @@
+{{define "title"}}Migration Baru{{end}}
+
+{{define "content"}}
+<h1>Migration Baru</h1>
+{{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/databases/{{.Data.DatabaseID}}/migrations">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <label>
+    Deskripsi
+    <input name="description" value="{{.Data.Description}}" required>
+  </label>
+  <label>
+    SQL
+    <textarea name="sql" rows="12" spellcheck="false" required>{{.Data.SQL}}</textarea>
+  </label>
+  <button type="submit">Simpan draft</button>
+</form>
+{{end}}
