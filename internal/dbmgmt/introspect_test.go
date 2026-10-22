@@ -152,6 +152,71 @@ func TestIntrospectionNggakKetemu(t *testing.T) {
 	}
 }
 
+func TestFetchRowsFormatTeks(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.DB(t)
+	var schema string
+	if err := db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := db.Exec(ctx, `
+		CREATE TABLE ragam (
+			n  NUMERIC(10,2),
+			u  UUID,
+			iv INTERVAL,
+			j  JSONB,
+			d  DATE,
+			a  INT[]
+		);
+		INSERT INTO ragam VALUES
+			(12.50, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '1 day 2 hours', '{"k":1}', '2026-10-22', '{1,2}');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := FetchRows(ctx, db, schema, "ragam", 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"12.50", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "1 day 02:00:00", `{"k": 1}`, "2026-10-22", "{1,2}"}
+	for i, w := range want {
+		if got := page.Rows[0][i].Value; got != w {
+			t.Errorf("kolom %s: mau %q, dapat %q", page.Columns[i], w, got)
+		}
+	}
+}
+
+// UPDATE mindahin baris id 1 ke belakang, jadi tanpa ORDER BY urutannya berubah.
+func TestFetchRowsUrutPrimaryKey(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.DB(t)
+	var schema string
+	if err := db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := db.Exec(ctx, `
+		CREATE TABLE antrian (id INT PRIMARY KEY, isi TEXT);
+		INSERT INTO antrian VALUES (1, 'a'), (2, 'b'), (3, 'c');
+		UPDATE antrian SET isi = 'a2' WHERE id = 1;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := FetchRows(ctx, db, schema, "antrian", 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, w := range []string{"1", "2", "3"} {
+		if got := page.Rows[i][0].Value; got != w {
+			t.Fatalf("baris %d: mau id %s, dapat %s", i, w, got)
+		}
+	}
+}
+
 func hasSchema(list []Schema, name string) bool {
 	for _, s := range list {
 		if s.Name == name {
