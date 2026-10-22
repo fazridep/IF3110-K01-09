@@ -1,6 +1,6 @@
 # Progress Tubes IF3110 - Database Management Platform
 
-Terakhir diupdate: **22 Oktober 2026** (dbmgmt)
+Terakhir diupdate: **22 Oktober 2026** (access + admin selesai)
 
 Deadline Milestone 1: 25 Oktober 2026, 13.10 WIB.
 
@@ -37,7 +37,7 @@ Template ikut fitur di `web/templates/<fitur>/`, layout di `web/templates/layout
 - [ ] **Fazri:** helper transaction di `store`
 - [x] **Kak Ardell:** `config`, router + layout + helper render di `web`
 - [x] **Zahran:** `testutil` (konek `TEST_DATABASE_URL`, jalanin migration, schema per test)
-- [ ] **Dzakwan:** draft schema tabel users/groups/grant bareng Kak Ardell & Fazri biar FK-nya nyambung
+- [x] **Dzakwan:** draft schema tabel users/groups/grant bareng Kak Ardell & Fazri biar FK-nya nyambung
 
 ### Kontrak antar bagian
 
@@ -72,12 +72,14 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 
 ### 2. Dzakwan - Izin & Platform Admin
 
-- [ ] hitung izin efektif user di banyak group (yang tertinggi menang, nggak ada deny)
-- [ ] `RequirePlatformAdmin` dan `RequireDBAccess(view_only | view_edit)`
-- [ ] halaman + handler: user, group, anggota group
-- [ ] grant level akses group per database (view_only / view_edit)
-- [ ] cabut akses / nonaktifkan user -> panggil `auth.RevokeUserSessions`
-- [ ] semua aksi admin dicek di backend, bukan cuma disembunyiin di UI
+- [x] hitung izin efektif user di banyak group (yang tertinggi menang, nggak ada deny)
+- [x] `RequirePlatformAdmin` dan `RequireDBAccess(view_only | view_edit)`
+- [x] halaman + handler: user, group, anggota group
+- [x] grant level akses group per database (view_only / view_edit)
+- [x] tambah user biasa dari halaman admin
+- [x] cabut akses -> panggil `auth.RevokeUserSessions`
+- [ ] nonaktifkan user
+- [x] semua aksi admin dicek di backend, bukan cuma disembunyiin di UI
 
 ### 3. Fazri - Database Management
 
@@ -90,20 +92,16 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 - [x] viewer data + pagination
 - [x] koneksi gagal / nggak punya akses -> pesan jelas, bukan 500 kosong
 
-Catatan: halaman `/databases` masih kosong karena `access.EffectiveLevel`
-belum ada. Sementara di `main.go` resolver-nya dibikin selalu "tanpa akses",
-jadi cuma `/admin/databases` yang bisa dipakai. Begitu access di-merge, tinggal
-ganti dua fungsi di `runServer` (lihat ADR-009).
-
 ### 4. Zahran - Migration
 
-- [ ] daftar + detail migration (versi, SQL, pelaksana, waktu, status)
-- [ ] editor SQL (buat + ubah migration yang belum dijalankan)
-- [ ] penentuan versi berikutnya, linear per database
-- [ ] advisory lock biar eksekusi barengan nggak nabrak
-- [ ] jalanin dalam transaction: sukses commit, gagal rollback + simpan error
-- [ ] tolak statement yang nggak boleh jalan di transaction (mis. `CREATE INDEX CONCURRENTLY`)
-- [ ] cuma view_edit yang boleh bikin, ubah, dan jalanin; view_only cuma lihat
+- [x] daftar + detail migration (versi, SQL, pelaksana, waktu, status)
+- [x] editor SQL (buat + ubah migration yang belum dijalankan)
+- [x] penentuan versi berikutnya, linear per database
+- [x] advisory lock biar eksekusi barengan nggak nabrak
+- [x] jalanin dalam transaction: sukses commit, gagal rollback + simpan error
+- [x] tolak statement yang nggak boleh jalan di transaction (mis. `CREATE INDEX CONCURRENTLY`)
+- [x] cuma view_edit yang boleh bikin, ubah, dan jalanin; view_only cuma lihat
+- [ ] daftarin route migration di `main.go`, `CanView`/`CanEdit` dari `access.EffectiveLevel` (integrasi 24 Okt)
 
 ## Keputusan desain
 
@@ -129,3 +127,11 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 22 Okt (Fazri): migration `0200_database_connections`, CRUD koneksi + enkripsi AES-GCM,
   pool ke db target, viewer schema/tabel/data dengan pagination, unit + integration test,
   route `/admin/databases` dan `/databases`
+- 22 Okt (Dzakwan): migration 0300-0302 (groups, group_members, group_database_access),
+  package `access` (EffectiveLevel, RequirePlatformAdmin, RequireDBAccess),
+  package `admin` (CRUD user/group/member/grant, halaman admin), test access + admin
+- 22 Okt (Zahran): migration `0400_database_migrations`, package `migration` (cek SQL, service,
+  handler, template), unit + integration test, ADR-010
+- 22 Okt (Zahran): review dbmgmt, fix tampilan nilai di viewer, lock pool, dan tes koneksi di form edit
+- 22 Okt (Zahran): review access + admin, rebase ke dev, sambung access ke dbmgmt di `main.go`,
+  FK grant ke `database_connections`, form tambah user, admin nggak otomatis punya akses database

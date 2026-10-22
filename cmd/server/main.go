@@ -15,6 +15,8 @@ import (
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
+	"github.com/if3110/tubes-db-platform/internal/access"
+	"github.com/if3110/tubes-db-platform/internal/admin"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
 	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
@@ -72,20 +74,26 @@ func runServer(cfg *config.Config) {
 	pools := dbmgmt.NewManager(dbStore)
 	defer pools.Close()
 
-	// TODO(access): package access belum ada di dev, jadi sementara cek admin
-	// pakai field dari session dan akses database ditutup. Begitu access
-	// di-merge, ganti dua fungsi ini dengan access.IsPlatformAdmin dan
-	// adapter access.EffectiveLevel (ADR-001).
+	// Adapter dari access ke tipe fungsi dbmgmt (ADR-009).
+	perms := access.NewStore(db)
 	isAdmin := func(ctx context.Context, userID uuid.UUID) (bool, error) {
 		u := auth.CurrentUser(ctx)
-		return u != nil && u.ID == userID && u.IsPlatformAdmin, nil
+		return u != nil && u.ID == userID && access.IsPlatformAdmin(ctx), nil
 	}
-	level := func(context.Context, uuid.UUID, uuid.UUID) (string, error) {
-		return dbmgmt.LevelNone, nil
+	level := func(ctx context.Context, userID, dbID uuid.UUID) (string, error) {
+		l, err := perms.EffectiveLevel(ctx, userID, dbID)
+		return string(l), err
 	}
 	dbHandler := dbmgmt.NewHandler(dbStore, pools, view, isAdmin, level)
 
-	handler := web.NewRouter(sessions, authHandler, dbHandler.RegisterRoutes, view, cfg.IsProduction())
+	adminStore := admin.NewStore(db)
+	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
+
+	register := func(mux *http.ServeMux) {
+		dbHandler.RegisterRoutes(mux)
+		adminHandler.RegisterRoutes(mux)
+	}
+	handler := web.NewRouter(sessions, authHandler, register, view, cfg.IsProduction())
 
 	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
 	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))
