@@ -20,6 +20,7 @@ import (
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
 	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
+	"github.com/if3110/tubes-db-platform/internal/migration"
 	"github.com/if3110/tubes-db-platform/internal/store"
 	"github.com/if3110/tubes-db-platform/internal/web"
 	"github.com/if3110/tubes-db-platform/migrations"
@@ -89,9 +90,13 @@ func runServer(cfg *config.Config) {
 	adminStore := admin.NewStore(db)
 	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
 
+	migService := migration.NewService(db, perms, pools)
+	migHandler := migration.NewHandler(migService, view)
+
 	register := func(mux *http.ServeMux) {
 		dbHandler.RegisterRoutes(mux)
 		adminHandler.RegisterRoutes(mux)
+		migHandler.RegisterRoutes(mux)
 	}
 	handler := web.NewRouter(sessions, authHandler, register, view, cfg.IsProduction())
 
