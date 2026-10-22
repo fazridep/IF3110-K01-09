@@ -19,6 +19,7 @@ import (
 var (
 	ErrNotFound      = errors.New("dbmgmt: koneksi database tidak ditemukan")
 	ErrDuplicateName = errors.New("dbmgmt: nama koneksi sudah dipakai")
+	ErrInUse         = errors.New("dbmgmt: koneksi masih dipakai riwayat migration")
 )
 
 // Connection itu satu baris database_connections tanpa password.
@@ -170,8 +171,12 @@ func (s *Store) Update(ctx context.Context, id uuid.UUID, in Input) error {
 
 func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.db.Exec(ctx, `DELETE FROM database_connections WHERE id=$1`, id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return ErrInUse
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("dbmgmt: hapus koneksi: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

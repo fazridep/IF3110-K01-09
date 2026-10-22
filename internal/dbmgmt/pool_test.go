@@ -3,11 +3,13 @@ package dbmgmt
 import (
 	"context"
 	"errors"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // targetInput nyusun Input dari TEST_DATABASE_URL, jadi integration test bisa
@@ -105,6 +107,70 @@ func TestManagerPoolPasswordSalah(t *testing.T) {
 	}
 	if strings.Contains(ce.Error(), "-jangan-sama") {
 		t.Fatal("pesan error bocorin password")
+	}
+}
+
+// Server palsu di sini nerima koneksi tapi nggak pernah jawab, jadi pgx
+// nyangkut sampai timeout.
+func TestManagerPoolNggakSalingTunggu(t *testing.T) {
+	good := targetInput(t)
+	ctx := context.Background()
+	store := newTestStore(t)
+	m := NewManager(store)
+	defer m.Close()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
+		}
+	}()
+
+	hang := good
+	hang.Name = "target-hang"
+	hang.Host = "127.0.0.1"
+	hang.Port = ln.Addr().(*net.TCPAddr).Port
+	hangID, err := store.Create(ctx, hang)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good.Name = "target-sehat"
+	goodID, err := store.Create(ctx, good)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hangCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.Pool(hangCtx, hangID)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	<-accepted
+
+	start := time.Now()
+	if _, err := m.Pool(ctx, goodID); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("pool target sehat nunggu target yang hang (%v)", d)
 	}
 }
 

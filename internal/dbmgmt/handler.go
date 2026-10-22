@@ -116,7 +116,7 @@ func (h *Handler) adminCreate(w http.ResponseWriter, r *http.Request) {
 		h.renderFormError(w, r, false, "", in, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/databases/"+id.String()+"?notice="+url.QueryEscape("Koneksi dibuat."), http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/databases/"+id.String()+"?notice=dibuat", http.StatusSeeOther)
 }
 
 func (h *Handler) adminDetail(w http.ResponseWriter, r *http.Request) {
@@ -129,16 +129,7 @@ func (h *Handler) adminDetail(w http.ResponseWriter, r *http.Request) {
 		h.dataError(w, r, err)
 		return
 	}
-	page := adminDetailPage{Connection: c, Notice: noticeFrom(r)}
-	switch r.URL.Query().Get("test") {
-	case "ok":
-		page.TestStatus = "ok"
-		page.TestMessage = "Koneksi berhasil."
-	case "gagal":
-		page.TestStatus = "gagal"
-		page.TestMessage = r.URL.Query().Get("msg")
-	}
-	h.view.Render(w, r, "dbmgmt/admin_detail", page)
+	h.view.Render(w, r, "dbmgmt/admin_detail", adminDetailPage{Connection: c, Notice: noticeFrom(r)})
 }
 
 func (h *Handler) adminEdit(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +163,7 @@ func (h *Handler) adminUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.pools.Invalidate(id)
-	http.Redirect(w, r, "/admin/databases/"+id.String()+"?notice="+url.QueryEscape("Koneksi disimpan."), http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/databases/"+id.String()+"?notice=disimpan", http.StatusSeeOther)
 }
 
 func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +176,7 @@ func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.pools.Invalidate(id)
-	http.Redirect(w, r, "/admin/databases?notice="+url.QueryEscape("Koneksi dihapus."), http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/databases?notice=dihapus", http.StatusSeeOther)
 }
 
 // adminTestSaved ngetes koneksi yang sudah tersimpan, pakai pool yang nanti
@@ -195,31 +186,54 @@ func (h *Handler) adminTestSaved(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	c, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		h.dataError(w, r, err)
+		return
+	}
+	page := adminDetailPage{Connection: c, TestStatus: "ok", TestMessage: "Koneksi berhasil."}
 	pool, err := h.pools.Pool(r.Context(), id)
 	if err == nil {
 		err = pool.Ping(r.Context())
 	}
-	target := "/admin/databases/" + id.String()
 	if err != nil {
 		log.Printf("dbmgmt: tes koneksi %s: %v", id, err)
-		http.Redirect(w, r, target+"?test=gagal&msg="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
+		page.TestStatus = "gagal"
+		page.TestMessage = err.Error()
 	}
-	http.Redirect(w, r, target+"?test=ok", http.StatusSeeOther)
+	h.view.Render(w, r, "dbmgmt/admin_detail", page)
 }
 
-// adminTestInput ngetes data yang masih ada di form, belum disimpan.
+// adminTestInput ngetes data yang masih ada di form, belum disimpan. Password
+// kosong di form edit berarti pakai yang tersimpan.
 func (h *Handler) adminTestInput(w http.ResponseWriter, r *http.Request) {
 	in := inputFromForm(r)
 	isEdit := r.FormValue("is_edit") == "1"
 	id := r.FormValue("id")
 
 	page := adminFormPage{IsEdit: isEdit, ID: id, Input: in, TestStatus: "ok", TestMessage: "Koneksi berhasil."}
-	if err := h.pools.Test(r.Context(), in); err != nil {
+	err := h.testInput(r.Context(), in, isEdit, id)
+	if err != nil {
 		page.TestStatus = "gagal"
 		page.TestMessage = err.Error()
 	}
+	page.Input.Password = ""
 	h.view.Render(w, r, "dbmgmt/admin_form", page)
+}
+
+func (h *Handler) testInput(ctx context.Context, in Input, isEdit bool, rawID string) error {
+	if isEdit && in.Password == "" {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return ErrNotFound
+		}
+		_, password, err := h.store.credentials(ctx, id)
+		if err != nil {
+			return err
+		}
+		in.Password = password
+	}
+	return h.pools.Test(ctx, in)
 }
 
 func (h *Handler) renderFormError(w http.ResponseWriter, r *http.Request, isEdit bool, id string, in Input, err error) {
@@ -421,6 +435,8 @@ func (h *Handler) dataError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrTableNotFound):
 		h.fail(w, r, http.StatusNotFound, "Datanya nggak ketemu.")
+	case errors.Is(err, ErrInUse):
+		h.fail(w, r, http.StatusConflict, "Koneksi ini masih punya riwayat migration, jadi nggak bisa dihapus.")
 	case errors.Is(err, ErrBadCiphertext):
 		h.fail(w, r, http.StatusInternalServerError, "Kredensial koneksi nggak bisa dibuka. Cek CREDENTIAL_ENCRYPTION_KEY.")
 	default:
@@ -428,14 +444,22 @@ func (h *Handler) dataError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// connectError dipakai kalau database target nggak bisa dihubungi.
+// connectError dipakai kalau database target nggak bisa dihubungi. Detailnya
+// cuma ditunjukin ke admin.
 func (h *Handler) connectError(w http.ResponseWriter, r *http.Request, err error) {
 	var ce *ConnectError
-	if errors.As(err, &ce) {
-		h.fail(w, r, http.StatusBadGateway, ce.Error())
+	if !errors.As(err, &ce) {
+		h.dataError(w, r, err)
 		return
 	}
-	h.dataError(w, r, err)
+	log.Printf("dbmgmt: %v", ce)
+	msg := "Database ini lagi nggak bisa dihubungi. Coba lagi nanti, atau kabari Platform Admin."
+	if u := auth.CurrentUser(r.Context()); u != nil {
+		if ok, err := h.isAdmin(r.Context(), u.ID); err == nil && ok {
+			msg = ce.Error()
+		}
+	}
+	h.fail(w, r, http.StatusBadGateway, msg)
 }
 
 func (h *Handler) serverError(w http.ResponseWriter, r *http.Request, err error) {
@@ -470,6 +494,13 @@ func intParam(r *http.Request, key string, def int) int {
 	return n
 }
 
+// Teks notice nggak diambil langsung dari URL biar nggak bisa dipalsukan.
+var notices = map[string]string{
+	"dibuat":   "Koneksi dibuat.",
+	"disimpan": "Koneksi disimpan.",
+	"dihapus":  "Koneksi dihapus.",
+}
+
 func noticeFrom(r *http.Request) string {
-	return r.URL.Query().Get("notice")
+	return notices[r.URL.Query().Get("notice")]
 }

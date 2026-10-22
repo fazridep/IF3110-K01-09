@@ -61,21 +61,41 @@ func (m *Manager) Pool(ctx context.Context, id uuid.UUID) (*pgxpool.Pool, error)
 	}
 	dsn := c.DSN(password)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if e := m.pools[id]; e != nil && e.dsn == dsn {
-		return e.pool, nil
+	if p := m.cached(id, dsn); p != nil {
+		return p, nil
 	}
 
+	// Di luar lock, konek ke host yang mati bisa makan beberapa detik.
 	pool, err := newPool(ctx, dsn)
 	if err != nil {
 		return nil, &ConnectError{Host: c.Host, Port: c.Port, Database: c.Database, Reason: connectReason(err), Err: err}
 	}
-	if old := m.pools[id]; old != nil {
+
+	m.mu.Lock()
+	if e := m.pools[id]; e != nil && e.dsn == dsn {
+		// keduluan request lain
+		m.mu.Unlock()
+		pool.Close()
+		return e.pool, nil
+	}
+	old := m.pools[id]
+	m.pools[id] = &poolEntry{pool: pool, dsn: dsn}
+	m.mu.Unlock()
+
+	// Close nunggu koneksi yang lagi dipakai, jadi jangan sambil pegang lock.
+	if old != nil {
 		old.pool.Close()
 	}
-	m.pools[id] = &poolEntry{pool: pool, dsn: dsn}
 	return pool, nil
+}
+
+func (m *Manager) cached(id uuid.UUID, dsn string) *pgxpool.Pool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.pools[id]; e != nil && e.dsn == dsn {
+		return e.pool
+	}
+	return nil
 }
 
 // Test nyoba koneksi pakai data form yang belum disimpan.
@@ -99,19 +119,21 @@ func (m *Manager) Test(ctx context.Context, in Input) error {
 // Invalidate menutup pool lama. Dipanggil setelah koneksi diubah atau dihapus.
 func (m *Manager) Invalidate(id uuid.UUID) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if e, ok := m.pools[id]; ok {
+	e, ok := m.pools[id]
+	delete(m.pools, id)
+	m.mu.Unlock()
+	if ok {
 		e.pool.Close()
-		delete(m.pools, id)
 	}
 }
 
 func (m *Manager) Close() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, e := range m.pools {
+	pools := m.pools
+	m.pools = make(map[uuid.UUID]*poolEntry)
+	m.mu.Unlock()
+	for _, e := range pools {
 		e.pool.Close()
-		delete(m.pools, id)
 	}
 }
 

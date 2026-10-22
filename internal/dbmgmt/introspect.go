@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -239,7 +238,14 @@ func FetchRows(ctx context.Context, db *pgxpool.Pool, schema, table string, page
 		}
 	}
 
-	rows, err := db.Query(ctx, `SELECT * FROM `+ident+` LIMIT $1 OFFSET $2`, perPage, (page-1)*perPage)
+	orderBy, err := primaryKeyOrder(ctx, db, ident)
+	if err != nil {
+		return RowPage{}, err
+	}
+
+	// Format teks biar numeric, uuid, interval, dll tampil kayak di psql.
+	rows, err := db.Query(ctx, `SELECT * FROM `+ident+orderBy+` LIMIT $1 OFFSET $2`,
+		pgx.QueryResultFormats{pgx.TextFormatCode}, perPage, (page-1)*perPage)
 	if err != nil {
 		return RowPage{}, fmt.Errorf("dbmgmt: baca %s.%s: %w", schema, table, err)
 	}
@@ -250,30 +256,43 @@ func FetchRows(ctx context.Context, db *pgxpool.Pool, schema, table string, page
 		out.Columns = append(out.Columns, f.Name)
 	}
 	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			return RowPage{}, err
-		}
-		cells := make([]Cell, len(values))
-		for i, v := range values {
-			cells[i] = cellValue(v)
+		raw := rows.RawValues()
+		cells := make([]Cell, len(raw))
+		for i, v := range raw {
+			if v == nil {
+				cells[i] = Cell{Null: true}
+			} else {
+				cells[i] = Cell{Value: string(v)}
+			}
 		}
 		out.Rows = append(out.Rows, cells)
 	}
 	return out, rows.Err()
 }
 
-func cellValue(v any) Cell {
-	switch x := v.(type) {
-	case nil:
-		return Cell{Null: true}
-	case []byte:
-		return Cell{Value: string(x)}
-	case time.Time:
-		return Cell{Value: x.Format("2006-01-02 15:04:05")}
-	default:
-		return Cell{Value: fmt.Sprint(x)}
+// primaryKeyOrder bikin ORDER BY dari primary key biar paging stabil. Tabel
+// tanpa primary key dibiarkan tanpa urutan.
+func primaryKeyOrder(ctx context.Context, db *pgxpool.Pool, ident string) (string, error) {
+	rows, err := db.Query(ctx, `
+		SELECT a.attname
+		FROM pg_index i
+		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+		WHERE i.indrelid = to_regclass($1) AND i.indisprimary
+		ORDER BY array_position(i.indkey::int2[], a.attnum)`, ident)
+	if err != nil {
+		return "", fmt.Errorf("dbmgmt: primary key %s: %w", ident, err)
 	}
+	cols, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return "", fmt.Errorf("dbmgmt: primary key %s: %w", ident, err)
+	}
+	if len(cols) == 0 {
+		return "", nil
+	}
+	for i, c := range cols {
+		cols[i] = pgx.Identifier{c}.Sanitize()
+	}
+	return " ORDER BY " + strings.Join(cols, ", "), nil
 }
 
 func tableExists(ctx context.Context, db *pgxpool.Pool, schema, table string) (bool, error) {
