@@ -76,11 +76,16 @@ func createUser(t *testing.T, db *pgxpool.Pool, username string) uuid.UUID {
 	return id
 }
 
-// createDatabase perlu disesuaikan kalau kolom wajib database_connections berubah.
+// createDatabase cuma ngisi kolom wajib. Target di test pakai fakeTargets, jadi
+// password_enc nggak pernah dibuka.
 func createDatabase(t *testing.T, db *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
-	if err := db.QueryRow(context.Background(), `INSERT INTO database_connections (name) VALUES ('toko') RETURNING id`).Scan(&id); err != nil {
+	err := db.QueryRow(context.Background(), `
+		INSERT INTO database_connections (name, host, db_name, username, password_enc)
+		VALUES ('toko', 'localhost', 'toko', 'app', '\x00')
+		RETURNING id`).Scan(&id)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return id
