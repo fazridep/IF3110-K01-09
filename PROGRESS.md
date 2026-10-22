@@ -101,7 +101,7 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 - [x] jalanin dalam transaction: sukses commit, gagal rollback + simpan error
 - [x] tolak statement yang nggak boleh jalan di transaction (mis. `CREATE INDEX CONCURRENTLY`)
 - [x] cuma view_edit yang boleh bikin, ubah, dan jalanin; view_only cuma lihat
-- [ ] daftarin route migration di `main.go`, `CanView`/`CanEdit` dari `access.EffectiveLevel` (integrasi 24 Okt)
+- [x] daftarin route migration di `main.go`, `CanView`/`CanEdit` dari `access.EffectiveLevel`
 
 ## Keputusan desain
 
@@ -135,3 +135,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 22 Okt (Zahran): review dbmgmt, fix tampilan nilai di viewer, lock pool, dan tes koneksi di form edit
 - 22 Okt (Zahran): review access + admin, rebase ke dev, sambung access ke dbmgmt di `main.go`,
   FK grant ke `database_connections`, form tambah user, admin nggak otomatis punya akses database
+- 22 Okt (Zahran): integrasi migration di `main.go`, `CanView`/`CanEdit` di `access`, link navigasi,
+  tes manual alur lengkap (login, grant, viewer, migration sukses/gagal, akses ditolak)

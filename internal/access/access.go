@@ -72,6 +72,17 @@ func (s *Store) EffectiveLevel(ctx context.Context, userID uuid.UUID, dbID uuid.
 	return Level(*level), nil
 }
 
+// CanView dan CanEdit dipakai package migration (interface Permissions).
+func (s *Store) CanView(ctx context.Context, userID, dbID uuid.UUID) (bool, error) {
+	level, err := s.EffectiveLevel(ctx, userID, dbID)
+	return meetsMinimum(level, ViewOnly), err
+}
+
+func (s *Store) CanEdit(ctx context.Context, userID, dbID uuid.UUID) (bool, error) {
+	level, err := s.EffectiveLevel(ctx, userID, dbID)
+	return meetsMinimum(level, ViewEdit), err
+}
+
 // RequirePlatformAdmin adalah middleware yang menolak request dengan 403
 // kalau user bukan Platform Admin.
 func RequirePlatformAdmin(next http.Handler) http.Handler {

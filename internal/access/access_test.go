@@ -213,3 +213,42 @@ func TestRequirePlatformAdminLolos(t *testing.T) {
 		t.Error("admin harusnya diteruskan ke handler tujuan")
 	}
 }
+
+func TestCanViewCanEdit(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	dbID := createDatabase(t, db, "toko")
+	reader := createUser(t, db, "reader", false)
+	editor := createUser(t, db, "editor", false)
+	stranger := createUser(t, db, "stranger", false)
+
+	readers := createGroup(t, db, "readers")
+	editors := createGroup(t, db, "editors")
+	addMember(t, db, readers, reader)
+	addMember(t, db, editors, editor)
+	setGrant(t, db, readers, dbID, "view_only")
+	setGrant(t, db, editors, dbID, "view_edit")
+
+	for _, tc := range []struct {
+		name           string
+		user           uuid.UUID
+		canView, canEd bool
+	}{
+		{"view_only", reader, true, false},
+		{"view_edit", editor, true, true},
+		{"tanpa akses", stranger, false, false},
+	} {
+		view, err := s.CanView(ctx, tc.user, dbID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit, err := s.CanEdit(ctx, tc.user, dbID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view != tc.canView || edit != tc.canEd {
+			t.Errorf("%s: CanView=%v CanEdit=%v, mau %v %v", tc.name, view, edit, tc.canView, tc.canEd)
+		}
+	}
+}
