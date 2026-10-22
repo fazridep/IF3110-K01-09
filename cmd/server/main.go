@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
+	"github.com/if3110/tubes-db-platform/internal/admin"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
 	"github.com/if3110/tubes-db-platform/internal/store"
@@ -61,7 +62,9 @@ func runServer(cfg *config.Config) {
 		Secure:           cfg.IsProduction(),
 	})
 	authHandler := auth.NewHandler(db, sessions, view)
-	handler := web.NewRouter(sessions, authHandler, view, cfg.IsProduction())
+	adminStore := admin.NewStore(db)
+	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
+	handler := web.NewRouter(sessions, authHandler, adminHandler, view, cfg.IsProduction())
 
 	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
 	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))
