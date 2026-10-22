@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -213,6 +214,125 @@ func TestIDBukanUUID(t *testing.T) {
 	rec := serve(mux, request("GET", "/databases/bukan-uuid", "", user()))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("mau 404, dapat %d", rec.Code)
+	}
+}
+
+func TestAdminTesFormEditPakaiPasswordTersimpan(t *testing.T) {
+	in := targetInput(t)
+	if in.Password == "" {
+		t.Skip("database test tanpa password")
+	}
+	h, view, store := newTestHandler(t, true, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	id, err := store.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{
+		"is_edit":  {"1"},
+		"id":       {id.String()},
+		"name":     {in.Name},
+		"host":     {in.Host},
+		"port":     {strconv.Itoa(in.Port)},
+		"db_name":  {in.Database},
+		"username": {in.Username},
+		"sslmode":  {in.SSLMode},
+	}
+	serve(mux, request("POST", "/admin/databases/test", form.Encode(), user()))
+	page := view.data.(adminFormPage)
+	if page.TestStatus != "ok" {
+		t.Fatalf("tes harusnya berhasil pakai password tersimpan: %q", page.TestMessage)
+	}
+	if page.Input.Password != "" {
+		t.Fatal("password tersimpan nggak boleh dikirim balik ke form")
+	}
+}
+
+func TestAdminHapusMasihDipakai(t *testing.T) {
+	h, view, store := newTestHandler(t, true, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	ctx := context.Background()
+	id, err := store.Create(ctx, sampleInput("db-dipakai"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.db.Exec(ctx, `
+		CREATE TABLE perujuk (database_id UUID NOT NULL REFERENCES database_connections(id));
+		INSERT INTO perujuk VALUES ('`+id.String()+`');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serve(mux, request("POST", "/admin/databases/"+id.String()+"/delete", "", user()))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("mau 409, dapat %d", rec.Code)
+	}
+	if view.name != "dbmgmt/error" {
+		t.Fatalf("mau halaman error, dapat %q", view.name)
+	}
+}
+
+func TestGagalKonekDetailCumaBuatAdmin(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name      string
+		isAdmin   bool
+		lihatHost bool
+	}{
+		{"user biasa", false, false},
+		{"admin", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, view, store := newTestHandler(t, tc.isAdmin, func(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+				return LevelView, nil
+			})
+			mux := http.NewServeMux()
+			h.RegisterRoutes(mux)
+
+			in := sampleInput("mati")
+			in.Host = "127.0.0.1"
+			in.Port = 1
+			in.SSLMode = "disable"
+			id, err := store.Create(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rec := serve(mux, request("GET", "/databases/"+id.String(), "", user()))
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("mau 502, dapat %d", rec.Code)
+			}
+			msg := view.data.(struct{ Message string }).Message
+			if got := strings.Contains(msg, "127.0.0.1"); got != tc.lihatHost {
+				t.Fatalf("host kelihatan = %v, mau %v: %q", got, tc.lihatHost, msg)
+			}
+		})
+	}
+}
+
+func TestNoticeNggakDiambilDariURL(t *testing.T) {
+	h, view, store := newTestHandler(t, true, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	id, err := store.Create(context.Background(), sampleInput("db-notice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/admin/databases/" + id.String()
+
+	serve(mux, request("GET", base+"?notice="+url.QueryEscape("pesan palsu"), "", user()))
+	if got := view.data.(adminDetailPage).Notice; got != "" {
+		t.Fatalf("teks bebas dari URL nggak boleh tampil, dapat %q", got)
+	}
+	serve(mux, request("GET", base+"?notice=dibuat", "", user()))
+	if got := view.data.(adminDetailPage).Notice; got != "Koneksi dibuat." {
+		t.Fatalf("notice dibuat salah: %q", got)
 	}
 }
 

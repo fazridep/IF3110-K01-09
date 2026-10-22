@@ -32,7 +32,7 @@
   </form>
   <p><a href="/admin/databases/{{.Data.Connection.ID}}/edit" role="button" class="secondary outline">Ubah</a></p>
   <form method="post" action="/admin/databases/{{.Data.Connection.ID}}/delete"
-        onsubmit="return confirm('Hapus koneksi ini? Grant dan riwayat migration yang memakainya juga ikut terhapus.')">
+        onsubmit="return confirm('Hapus koneksi ini? Grant yang memakainya ikut terhapus.')">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <button type="submit" class="contrast">Hapus</button>
   </form>

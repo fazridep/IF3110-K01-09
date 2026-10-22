@@ -112,6 +112,30 @@ func TestStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestStoreHapusMasihDipakai(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	id, err := s.Create(ctx, sampleInput("db-dipakai"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(ctx, `
+		CREATE TABLE perujuk (database_id UUID NOT NULL REFERENCES database_connections(id));
+		INSERT INTO perujuk VALUES ('`+id.String()+`');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Delete(ctx, id); !errors.Is(err, ErrInUse) {
+		t.Fatalf("mau ErrInUse, dapat %v", err)
+	}
+	if _, err := s.Get(ctx, id); err != nil {
+		t.Fatalf("koneksi harusnya masih ada: %v", err)
+	}
+}
+
 func TestStoreIsiDefault(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
