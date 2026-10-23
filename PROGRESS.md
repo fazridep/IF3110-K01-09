@@ -78,7 +78,7 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 - [x] grant level akses group per database (view_only / view_edit)
 - [x] tambah user biasa dari halaman admin
 - [x] cabut akses -> panggil `auth.RevokeUserSessions`
-- [ ] nonaktifkan user
+- [x] nonaktifkan user (nggak bisa login, session langsung dicabut)
 - [x] semua aksi admin dicek di backend, bukan cuma disembunyiin di UI
 
 ### 3. Fazri - Database Management
@@ -137,3 +137,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
   FK grant ke `database_connections`, form tambah user, admin nggak otomatis punya akses database
 - 22 Okt (Zahran): integrasi migration di `main.go`, `CanView`/`CanEdit` di `access`, link navigasi,
   tes manual alur lengkap (login, grant, viewer, migration sukses/gagal, akses ditolak)
+- 23 Okt (Zahran): fix halaman database waktu db target mati (502, bukan 500), nonaktifkan user,
+  halaman error migration pakai layout, README final
