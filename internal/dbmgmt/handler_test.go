@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -395,6 +396,49 @@ func TestTemplateRender(t *testing.T) {
 		}
 		if strings.Contains(rec.Body.String(), "terjadi kesalahan") {
 			t.Errorf("%s: render gagal: %s", p.name, rec.Body.String())
+		}
+	}
+}
+
+// Query pertama setelah database mati dapat EOF dari koneksi lama, setelah pgx
+// konek ulang dapat connection refused. Dua-duanya harus 502, bukan 500.
+func TestDatabaseMatiSetelahPoolKebentuk(t *testing.T) {
+	ctx := context.Background()
+	in, kill := proxyTarget(t, targetInput(t))
+	h, view, store := newTestHandler(t, false, func(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+		return LevelView, nil
+	})
+	defer h.pools.Close()
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	in.Name = "toko"
+	id, err := store.Create(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := "/databases/" + id.String()
+	if rec := serve(mux, request("GET", page, "", user())); rec.Code != http.StatusOK {
+		t.Fatalf("sebelum mati mau 200, dapat %d", rec.Code)
+	}
+
+	kill()
+	for _, tc := range []struct {
+		name string
+		wait time.Duration
+		path string
+	}{
+		{"langsung", 0, page},
+		{"setelah konek ulang", 1200 * time.Millisecond, page},
+		{"halaman tabel", 0, page + "/tables/public/apa_saja"},
+	} {
+		time.Sleep(tc.wait)
+		rec := serve(mux, request("GET", tc.path, "", user()))
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("%s: mau 502, dapat %d (%+v)", tc.name, rec.Code, view.data)
+		}
+		if msg := view.data.(struct{ Message string }).Message; strings.Contains(msg, "127.0.0.1") {
+			t.Fatalf("%s: user biasa nggak boleh lihat host: %q", tc.name, msg)
 		}
 	}
 }

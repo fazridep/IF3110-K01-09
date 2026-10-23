@@ -199,7 +199,7 @@ func (h *Handler) adminTestSaved(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("dbmgmt: tes koneksi %s: %v", id, err)
 		page.TestStatus = "gagal"
-		page.TestMessage = err.Error()
+		page.TestMessage = asConnectError(c, err).Error()
 	}
 	h.view.Render(w, r, "dbmgmt/admin_detail", page)
 }
@@ -317,12 +317,12 @@ func (h *Handler) showDatabase(w http.ResponseWriter, r *http.Request) {
 
 	pool, err := h.pools.Pool(r.Context(), id)
 	if err != nil {
-		h.connectError(w, r, err)
+		h.connectError(w, r, c, err)
 		return
 	}
 	schemas, err := Schemas(r.Context(), pool)
 	if err != nil {
-		h.connectError(w, r, err)
+		h.connectError(w, r, c, err)
 		return
 	}
 
@@ -330,7 +330,7 @@ func (h *Handler) showDatabase(w http.ResponseWriter, r *http.Request) {
 	for _, s := range schemas {
 		tables, err := Tables(r.Context(), pool, s.Name)
 		if err != nil {
-			h.connectError(w, r, err)
+			h.connectError(w, r, c, err)
 			return
 		}
 		page.Schemas = append(page.Schemas, schemaTables{Schema: s, Tables: tables})
@@ -352,17 +352,17 @@ func (h *Handler) showTable(w http.ResponseWriter, r *http.Request) {
 
 	pool, err := h.pools.Pool(r.Context(), id)
 	if err != nil {
-		h.connectError(w, r, err)
+		h.connectError(w, r, c, err)
 		return
 	}
 	detail, err := InspectTable(r.Context(), pool, schema, table)
 	if err != nil {
-		h.dataError(w, r, err)
+		h.connectError(w, r, c, err)
 		return
 	}
 	rows, err := FetchRows(r.Context(), pool, schema, table, intParam(r, "page", 1), intParam(r, "per", DefaultPerPage))
 	if err != nil {
-		h.dataError(w, r, err)
+		h.connectError(w, r, c, err)
 		return
 	}
 
@@ -446,9 +446,9 @@ func (h *Handler) dataError(w http.ResponseWriter, r *http.Request, err error) {
 
 // connectError dipakai kalau database target nggak bisa dihubungi. Detailnya
 // cuma ditunjukin ke admin.
-func (h *Handler) connectError(w http.ResponseWriter, r *http.Request, err error) {
+func (h *Handler) connectError(w http.ResponseWriter, r *http.Request, c Connection, err error) {
 	var ce *ConnectError
-	if !errors.As(err, &ce) {
+	if !errors.As(asConnectError(c, err), &ce) {
 		h.dataError(w, r, err)
 		return
 	}
