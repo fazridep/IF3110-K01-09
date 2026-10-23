@@ -43,7 +43,8 @@
   <div class="grid">
     <label>Password
       <input name="password" type="password" autocomplete="new-password"
-             placeholder="{{if .Data.IsEdit}}kosongkan kalau nggak diubah{{end}}">
+             {{if .Data.IsEdit}}placeholder="kosongkan kalau nggak diubah"{{else}}required{{end}}>
+      {{if and (not .Data.IsEdit) .Data.TestStatus}}<small>Password nggak ditampilkan ulang, isi lagi sebelum disimpan.</small>{{end}}
     </label>
     <label>sslmode
       <select name="sslmode">

@@ -136,11 +136,20 @@ func TestStoreHapusMasihDipakai(t *testing.T) {
 	}
 }
 
+func TestStoreBuatTanpaPassword(t *testing.T) {
+	s := newTestStore(t)
+	in := sampleInput("tanpa-password")
+	in.Password = ""
+	if _, err := s.Create(context.Background(), in); err == nil {
+		t.Fatal("koneksi baru tanpa password harus ditolak")
+	}
+}
+
 func TestStoreIsiDefault(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	in := Input{Name: "tanpa-default", Host: "localhost", Database: "db", Username: "u"}
+	in := Input{Name: "tanpa-default", Host: "localhost", Database: "db", Username: "u", Password: "p"}
 	id, err := s.Create(ctx, in)
 	if err != nil {
 		t.Fatal(err)
