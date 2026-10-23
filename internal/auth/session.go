@@ -78,7 +78,9 @@ func (s *Store) Validate(ctx context.Context, token string) (*Session, error) {
 	if row.RevokedAt != nil {
 		return nil, ErrSessionRevoked
 	}
-	if now.After(row.ExpiresAt) || now.Sub(row.LastAccessedAt) > s.cfg.IdleTimeout {
+	// Tepat di expires_at session sudah dianggap habis. Pakai After doang bikin
+	// hasilnya beda di macOS, yang jamnya cuma presisi mikrodetik.
+	if !now.Before(row.ExpiresAt) || now.Sub(row.LastAccessedAt) >= s.cfg.IdleTimeout {
 		return nil, ErrSessionExpired
 	}
 	user, err := s.fetchUser(ctx, row.UserID)

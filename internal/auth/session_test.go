@@ -26,7 +26,8 @@ func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
 func newTestStore(t *testing.T) (*Store, *fakeClock) {
 	t.Helper()
-	clock := &fakeClock{t: time.Now()}
+	// Dipotong ke mikrodetik biar sama kayak presisi Postgres dan jam macOS.
+	clock := &fakeClock{t: time.Now().Truncate(time.Microsecond)}
 	s := NewStore(testutil.DB(t), testSessionConfig)
 	s.now = clock.now
 	return s, clock
