@@ -202,3 +202,14 @@ func TestForceRotate(t *testing.T) {
 		t.Fatal("setelah ForceRotate, request berikutnya harus dapat token baru")
 	}
 }
+
+func TestValidateUserNonaktif(t *testing.T) {
+	s, _ := newTestStore(t)
+	userID, token := newSession(t, s)
+	if _, err := s.db.Exec(context.Background(), `UPDATE users SET disabled_at=now() WHERE id=$1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Validate(context.Background(), token); !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("mau ErrSessionRevoked, dapat %v", err)
+	}
+}

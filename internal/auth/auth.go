@@ -13,6 +13,7 @@ var (
 	ErrSessionNotFound    = errors.New("auth: session tidak ditemukan")
 	ErrSessionExpired     = errors.New("auth: session sudah berakhir")
 	ErrSessionRevoked     = errors.New("auth: session telah dicabut")
+	ErrUserDisabled       = errors.New("auth: akun dinonaktifkan")
 )
 
 type User struct {

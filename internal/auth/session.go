@@ -232,10 +232,16 @@ func (s *Store) findSession(ctx context.Context, tokenHash []byte, now time.Time
 
 func (s *Store) fetchUser(ctx context.Context, userID uuid.UUID) (*User, error) {
 	u := &User{}
-	err := s.db.QueryRow(ctx, `SELECT id, username, is_platform_admin, created_at, updated_at FROM users WHERE id=$1`, userID).
-		Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.CreatedAt, &u.UpdatedAt)
+	var disabled bool
+	err := s.db.QueryRow(ctx, `SELECT id, username, is_platform_admin, disabled_at IS NOT NULL, created_at, updated_at FROM users WHERE id=$1`, userID).
+		Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &disabled, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("auth: ambil user: %w", err)
+	}
+	// Session user nonaktif dianggap dicabut, jaga-jaga kalau ada yang lolos
+	// dari RevokeUserSessions.
+	if disabled {
+		return nil, ErrSessionRevoked
 	}
 	return u, nil
 }

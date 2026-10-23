@@ -59,6 +59,10 @@ func (h *Handler) DoLogin(w http.ResponseWriter, r *http.Request) {
 		h.view.Render(w, r, "auth/login", loginPage{Error: "Username atau password salah."})
 		return
 	}
+	if errors.Is(err, ErrUserDisabled) {
+		h.view.Render(w, r, "auth/login", loginPage{Error: "Akun ini sudah dinonaktifkan. Hubungi Platform Admin."})
+		return
+	}
 	if err != nil {
 		serverError(w, err)
 		return

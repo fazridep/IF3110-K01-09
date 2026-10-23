@@ -188,3 +188,25 @@ func TestSeedAdmin(t *testing.T) {
 		t.Fatal("username yang sudah ada harus ditolak")
 	}
 }
+
+func TestLoginUserNonaktif(t *testing.T) {
+	h, view, _ := newTestHandler(t)
+	id := createUser(t, h.db, "budi", "rahasia")
+	if _, err := h.db.Exec(context.Background(), `UPDATE users SET disabled_at=now() WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := postLogin(h, "budi", "rahasia")
+	if sessionCookie(rr) != nil {
+		t.Fatal("user nonaktif nggak boleh dapat session")
+	}
+	if msg := view.data.(loginPage).Error; !strings.Contains(msg, "dinonaktifkan") {
+		t.Fatalf("pesan harus bilang akun nonaktif, dapat %q", msg)
+	}
+
+	// Password salah tetap dapat pesan biasa, jadi status akun nggak bocor.
+	postLogin(h, "budi", "salah")
+	if msg := view.data.(loginPage).Error; strings.Contains(msg, "dinonaktifkan") {
+		t.Fatalf("password salah nggak boleh nyebut status akun: %q", msg)
+	}
+}
