@@ -61,12 +61,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	userID := auth.CurrentUser(r.Context()).ID
 	migrations, err := h.svc.List(r.Context(), userID, dbID)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	canEdit, err := h.svc.CanEdit(r.Context(), userID, dbID)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	h.view.Render(w, r, "migration/list", listPage{DatabaseID: dbID, Migrations: migrations, CanEdit: canEdit})
@@ -79,11 +79,11 @@ func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	canEdit, err := h.svc.CanEdit(r.Context(), auth.CurrentUser(r.Context()).ID, dbID)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	if !canEdit {
-		h.fail(w, ErrForbidden)
+		h.fail(w, r, ErrForbidden)
 		return
 	}
 	h.view.Render(w, r, "migration/form", formPage{DatabaseID: dbID})
@@ -102,7 +102,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	http.Redirect(w, r, "/migrations/"+m.ID.String(), http.StatusSeeOther)
@@ -123,7 +123,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	http.Redirect(w, r, "/migrations/"+id.String(), http.StatusSeeOther)
@@ -140,7 +140,7 @@ func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	http.Redirect(w, r, "/migrations/"+id.String(), http.StatusSeeOther)
@@ -156,12 +156,12 @@ func (h *Handler) showDetail(w http.ResponseWriter, r *http.Request, formError s
 	userID := auth.CurrentUser(r.Context()).ID
 	m, err := h.svc.Get(r.Context(), userID, id)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	canEdit, err := h.svc.CanEdit(r.Context(), userID, m.DatabaseID)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 
@@ -173,16 +173,19 @@ func (h *Handler) showDetail(w http.ResponseWriter, r *http.Request, formError s
 	h.view.Render(w, r, "migration/detail", detailPage{Migration: m, CanEdit: canEdit, Form: form})
 }
 
-func (h *Handler) fail(w http.ResponseWriter, err error) {
+func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	status, msg := http.StatusInternalServerError, "Terjadi kesalahan di server."
 	switch {
 	case errors.Is(err, ErrForbidden):
-		http.Error(w, "Kamu nggak punya akses untuk aksi ini.", http.StatusForbidden)
+		status, msg = http.StatusForbidden, "Kamu nggak punya akses untuk aksi ini."
 	case errors.Is(err, ErrNotFound):
-		http.Error(w, "Migration nggak ditemukan.", http.StatusNotFound)
+		status, msg = http.StatusNotFound, "Migration nggak ditemukan."
 	default:
 		log.Printf("migration: %v", err)
-		http.Error(w, "terjadi kesalahan di server", http.StatusInternalServerError)
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	h.view.Render(w, r, "migration/error", struct{ Message string }{msg})
 }
 
 func isInputError(err error) bool {
