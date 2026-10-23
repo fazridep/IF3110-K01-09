@@ -18,10 +18,11 @@ const dummyHash = "$argon2id$v=19$m=65536,t=1,p=4$000000000000000000000000000000
 func authenticate(ctx context.Context, db *pgxpool.Pool, username, password string) (*User, error) {
 	u := &User{}
 	var hash string
+	var disabled bool
 	err := db.QueryRow(ctx, `
-		SELECT id, username, password_hash, is_platform_admin, created_at, updated_at
+		SELECT id, username, password_hash, is_platform_admin, disabled_at IS NOT NULL, created_at, updated_at
 		FROM users WHERE username=$1`, username,
-	).Scan(&u.ID, &u.Username, &hash, &u.IsPlatformAdmin, &u.CreatedAt, &u.UpdatedAt)
+	).Scan(&u.ID, &u.Username, &hash, &u.IsPlatformAdmin, &disabled, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = VerifyPassword(dummyHash, password)
 		return nil, ErrInvalidCredentials
@@ -31,6 +32,9 @@ func authenticate(ctx context.Context, db *pgxpool.Pool, username, password stri
 	}
 	if err := VerifyPassword(hash, password); err != nil {
 		return nil, ErrInvalidCredentials
+	}
+	if disabled {
+		return nil, ErrUserDisabled
 	}
 	return u, nil
 }

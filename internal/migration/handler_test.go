@@ -102,3 +102,14 @@ func TestHandlerShowsValidationError(t *testing.T) {
 		t.Fatalf("form harus tampil lagi dengan pesan error dan SQL user, dapat %d", rr.Code)
 	}
 }
+
+func TestHandlerHalamanDitolakPakaiLayout(t *testing.T) {
+	f := newFixture(t)
+	srv := newServer(t, f)
+
+	rr := srv.do(f.viewer, http.MethodGet, "/databases/"+f.dbID.String()+"/migrations/new", nil)
+	body := rr.Body.String()
+	if rr.Code != http.StatusForbidden || !strings.Contains(body, "<html") || !strings.Contains(body, "nggak punya akses") {
+		t.Fatalf("mau 403 dengan halaman berlayout, dapat %d: %s", rr.Code, body)
+	}
+}

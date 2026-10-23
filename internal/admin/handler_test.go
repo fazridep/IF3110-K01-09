@@ -125,3 +125,46 @@ func TestTemplateRender(t *testing.T) {
 		}
 	}
 }
+
+func TestNonaktifkanUser(t *testing.T) {
+	mux, _, store := newTestMux(t)
+	ctx := context.Background()
+	admin := &auth.User{ID: uuid.New(), Username: "admin", IsPlatformAdmin: true}
+
+	id, err := store.CreateUser(ctx, "gina", "rahasia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := auth.NewStore(store.db, auth.SessionConfig{})
+	if _, _, err := sessions.Create(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	groupID, _ := store.CreateGroup(ctx, "devs", "")
+
+	path := "/admin/users/" + id.String() + "/toggle-active"
+	if rec := post(mux, path, url.Values{}, admin); rec.Code != http.StatusSeeOther {
+		t.Fatalf("nonaktifkan: mau 303, dapat %d", rec.Code)
+	}
+	u, _ := store.GetUser(ctx, id)
+	if !u.Disabled {
+		t.Fatal("user harusnya nonaktif")
+	}
+	var aktif int
+	store.db.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id=$1 AND revoked_at IS NULL`, id).Scan(&aktif)
+	if aktif != 0 {
+		t.Fatalf("session user nonaktif harus dicabut, masih %d", aktif)
+	}
+	if others, _ := store.NonMembers(ctx, groupID); len(others) != 0 {
+		t.Fatalf("user nonaktif nggak boleh muncul di pilihan anggota: %+v", others)
+	}
+
+	post(mux, path, url.Values{}, admin)
+	if u, _ := store.GetUser(ctx, id); u.Disabled {
+		t.Fatal("user harusnya aktif lagi")
+	}
+
+	self := &auth.User{ID: id, Username: "gina", IsPlatformAdmin: true}
+	if rec := post(mux, path, url.Values{}, self); rec.Code != http.StatusForbidden {
+		t.Fatalf("nonaktifkan diri sendiri: mau 403, dapat %d", rec.Code)
+	}
+}

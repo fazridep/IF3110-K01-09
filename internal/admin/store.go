@@ -23,6 +23,7 @@ type User struct {
 	ID              uuid.UUID
 	Username        string
 	IsPlatformAdmin bool
+	Disabled        bool
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -76,7 +77,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, username, is_platform_admin, created_at, updated_at
+		SELECT id, username, is_platform_admin, disabled_at IS NOT NULL, created_at, updated_at
 		FROM users ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("admin: list users: %w", err)
@@ -86,7 +87,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("admin: scan user: %w", err)
 		}
 		users = append(users, u)
@@ -97,9 +98,9 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 func (s *Store) GetUser(ctx context.Context, id uuid.UUID) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(ctx, `
-		SELECT id, username, is_platform_admin, created_at, updated_at
+		SELECT id, username, is_platform_admin, disabled_at IS NOT NULL, created_at, updated_at
 		FROM users WHERE id=$1`, id,
-	).Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.CreatedAt, &u.UpdatedAt)
+	).Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -128,6 +129,17 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (uuid
 		return uuid.Nil, fmt.Errorf("admin: buat user: %w", err)
 	}
 	return id, nil
+}
+
+// SetDisabled nonaktifkan atau aktifkan lagi user. Cabut session-nya urusan handler.
+func (s *Store) SetDisabled(ctx context.Context, userID uuid.UUID, disabled bool) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE users SET disabled_at = CASE WHEN $1 THEN now() END, updated_at=now()
+		WHERE id=$2`, disabled, userID)
+	if err != nil {
+		return fmt.Errorf("admin: set disabled: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) SetPlatformAdmin(ctx context.Context, userID uuid.UUID, isAdmin bool) error {
@@ -247,9 +259,10 @@ func (s *Store) ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, e
 // NonMembers mengembalikan user yang belum menjadi anggota group tertentu.
 func (s *Store) NonMembers(ctx context.Context, groupID uuid.UUID) ([]User, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, username, is_platform_admin, created_at, updated_at
+		SELECT id, username, is_platform_admin, disabled_at IS NOT NULL, created_at, updated_at
 		FROM users
 		WHERE id NOT IN (SELECT user_id FROM group_members WHERE group_id = $1)
+		  AND disabled_at IS NULL
 		ORDER BY username`, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("admin: non-members: %w", err)
@@ -259,7 +272,7 @@ func (s *Store) NonMembers(ctx context.Context, groupID uuid.UUID) ([]User, erro
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.IsPlatformAdmin, &u.Disabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("admin: scan non-member: %w", err)
 		}
 		users = append(users, u)

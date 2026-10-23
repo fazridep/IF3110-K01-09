@@ -39,6 +39,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	admin.HandleFunc("GET /admin/users", h.ListUsers)
 	admin.HandleFunc("POST /admin/users", h.CreateUser)
 	admin.HandleFunc("POST /admin/users/{id}/toggle-admin", h.ToggleAdmin)
+	admin.HandleFunc("POST /admin/users/{id}/toggle-active", h.ToggleActive)
 
 	// Groups
 	admin.HandleFunc("GET /admin/groups", h.ListGroups)
@@ -147,6 +148,42 @@ func (h *Handler) ToggleAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+}
+
+// ToggleActive menonaktifkan atau mengaktifkan lagi user. User nonaktif nggak
+// bisa login, dan session yang masih jalan langsung dicabut.
+func (h *Handler) ToggleActive(w http.ResponseWriter, r *http.Request) {
+	userID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id tidak valid", http.StatusBadRequest)
+		return
+	}
+	if u := auth.CurrentUser(r.Context()); u != nil && u.ID == userID {
+		http.Error(w, "tidak bisa menonaktifkan akun sendiri", http.StatusForbidden)
+		return
+	}
+	user, err := h.store.GetUser(r.Context(), userID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if user == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	disable := !user.Disabled
+	if err := h.store.SetDisabled(r.Context(), userID, disable); err != nil {
+		serverError(w, err)
+		return
+	}
+	if disable {
+		if err := h.sessions.RevokeUserSessions(r.Context(), userID); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 }
 
