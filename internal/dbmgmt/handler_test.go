@@ -442,3 +442,42 @@ func TestDatabaseMatiSetelahPoolKebentuk(t *testing.T) {
 		}
 	}
 }
+
+// Habis tes koneksi password nggak ditampilkan ulang. Kalau admin langsung
+// simpan tanpa ngisi lagi, harus ditolak, bukan kesimpan dengan password kosong.
+func TestAdminBuatKoneksiTanpaPasswordDitolak(t *testing.T) {
+	h, view, store := newTestHandler(t, true, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	form := url.Values{
+		"name": {"db-demo"}, "host": {"localhost"}, "port": {"5432"},
+		"db_name": {"demo"}, "username": {"app"}, "password": {"rahasia"}, "sslmode": {"disable"},
+	}
+	serve(mux, request("POST", "/admin/databases/test", form.Encode(), user()))
+	if page := view.data.(adminFormPage); page.Input.Password != "" {
+		t.Fatal("password nggak boleh dikirim balik ke form")
+	}
+
+	form.Del("password")
+	rec := serve(mux, request("POST", "/admin/databases", form.Encode(), user()))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("mau 400, dapat %d", rec.Code)
+	}
+	if page := view.data.(adminFormPage); !strings.Contains(page.Error, "password") {
+		t.Fatalf("pesan error harus nyebut password: %q", page.Error)
+	}
+	if conns, _ := store.List(context.Background()); len(conns) != 0 {
+		t.Fatalf("koneksi nggak boleh kesimpan: %+v", conns)
+	}
+
+	rn, err := web.NewRenderer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	rn.Render(rr, httptest.NewRequest("GET", "/", nil), "dbmgmt/admin_form", adminFormPage{Input: Input{Port: 5432}, TestStatus: "ok"})
+	if !strings.Contains(rr.Body.String(), "isi lagi sebelum disimpan") {
+		t.Fatal("form baru habis tes koneksi harus ngingetin isi password lagi")
+	}
+}

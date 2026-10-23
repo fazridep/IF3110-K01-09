@@ -119,6 +119,11 @@ func (s *Store) Create(ctx context.Context, in Input) (uuid.UUID, error) {
 	if err := in.validate(); err != nil {
 		return uuid.Nil, err
 	}
+	// Waktu edit password kosong berarti pakai yang lama, tapi koneksi baru
+	// belum punya password lama.
+	if in.Password == "" {
+		return uuid.Nil, errors.New("password wajib diisi")
+	}
 	sealed, err := s.cipher.Seal(in.Password)
 	if err != nil {
 		return uuid.Nil, err
