@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -160,6 +161,21 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// asConnectError ngubah error putus koneksi yang baru ketahuan waktu query
+// (database mati setelah pool dibikin) jadi ConnectError.
+func asConnectError(c Connection, err error) error {
+	var ce *ConnectError
+	if errors.As(err, &ce) {
+		return err
+	}
+	var pce *pgconn.ConnectError
+	var netErr net.Error
+	if errors.As(err, &pce) || errors.As(err, &netErr) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return &ConnectError{Host: c.Host, Port: c.Port, Database: c.Database, Reason: connectReason(err), Err: err}
+	}
+	return err
+}
+
 // connectReason nerjemahin error koneksi jadi kalimat yang ngerti, tanpa
 // nampilin DSN (yang isinya password).
 func connectReason(err error) string {
@@ -182,6 +198,9 @@ func connectReason(err error) string {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "waktu koneksi habis"
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return "koneksi ke server terputus"
 	}
 	return "server nggak bisa dihubungi, cek host dan port"
 }

@@ -3,11 +3,13 @@ package dbmgmt
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -219,4 +221,47 @@ func TestManagerInvalidate(t *testing.T) {
 	if err := first.Ping(ctx); err == nil {
 		t.Fatal("pool lama harusnya ditutup")
 	}
+}
+
+// proxyTarget nerusin koneksi TCP ke database target. Fungsi yang dikembalikan
+// mutus semua koneksi dan berhenti nerima, jadi kayak database-nya mati.
+func proxyTarget(t *testing.T, in Input) (Input, func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := net.JoinHostPort(in.Host, strconv.Itoa(in.Port))
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			up, err := net.Dial("tcp", upstream)
+			if err != nil {
+				c.Close()
+				continue
+			}
+			mu.Lock()
+			conns = append(conns, c, up)
+			mu.Unlock()
+			go io.Copy(up, c)
+			go io.Copy(c, up)
+		}
+	}()
+	kill := func() {
+		ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	}
+	t.Cleanup(kill)
+	in.Host = "127.0.0.1"
+	in.Port = ln.Addr().(*net.TCPAddr).Port
+	return in, kill
 }
