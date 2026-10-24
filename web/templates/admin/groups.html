@@ -1,0 +1,50 @@
+{{define "title"}}Groups{{end}}
+
+{{define "content"}}
+<h1>Groups</h1>
+
+<details>
+  <summary role="button" class="outline">+ Buat Group Baru</summary>
+  <form method="post" action="/admin/groups">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>
+      Nama
+      <input name="name" required placeholder="Nama group">
+    </label>
+    <label>
+      Deskripsi
+      <input name="description" placeholder="Opsional">
+    </label>
+    <button type="submit">Buat</button>
+  </form>
+</details>
+
+<table>
+  <thead>
+    <tr>
+      <th>Nama</th>
+      <th>Deskripsi</th>
+      <th>Anggota</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Data.Groups}}
+    <tr>
+      <td><a href="/admin/groups/{{.ID}}">{{.Name}}</a></td>
+      <td>{{.Description}}</td>
+      <td>{{.MemberCount}}</td>
+      <td>
+        <form method="post" action="/admin/groups/{{.ID}}/delete" style="margin:0"
+              onsubmit="return confirm('Hapus group {{.Name}}?')">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button type="submit" class="outline secondary" style="padding:.3rem .6rem;margin:0">Hapus</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4">Belum ada group.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

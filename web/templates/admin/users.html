@@ -1,0 +1,65 @@
+{{define "title"}}Users{{end}}
+
+{{define "content"}}
+<h1>Users</h1>
+
+{{with .Data.Error}}<article><p>{{.}}</p></article>{{end}}
+
+<details{{if .Data.Error}} open{{end}}>
+  <summary role="button" class="outline">+ Tambah User</summary>
+  <form method="post" action="/admin/users">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="grid">
+      <label>
+        Username
+        <input name="username" value="{{.Data.Username}}" required autocomplete="off">
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" required autocomplete="new-password">
+      </label>
+    </div>
+    <button type="submit">Tambah</button>
+  </form>
+</details>
+
+<table>
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Platform Admin</th>
+      <th>Status</th>
+      <th>Dibuat</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Data.Users}}
+    <tr>
+      <td>{{.Username}}</td>
+      <td>{{if .IsPlatformAdmin}}✓ Admin{{else}}—{{end}}</td>
+      <td>{{if .Disabled}}Nonaktif{{else}}Aktif{{end}}</td>
+      <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+      <td>
+        <div style="display:flex;gap:.5rem">
+          <form method="post" action="/admin/users/{{.ID}}/toggle-admin" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button type="submit" class="outline secondary" style="padding:.3rem .6rem;margin:0">
+              {{if .IsPlatformAdmin}}Cabut Admin{{else}}Jadikan Admin{{end}}
+            </button>
+          </form>
+          <form method="post" action="/admin/users/{{.ID}}/toggle-active" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button type="submit" class="outline {{if .Disabled}}secondary{{else}}contrast{{end}}" style="padding:.3rem .6rem;margin:0">
+              {{if .Disabled}}Aktifkan{{else}}Nonaktifkan{{end}}
+            </button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="5">Belum ada user.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

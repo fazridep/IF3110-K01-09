@@ -1,0 +1,47 @@
+{{define "title"}}{{.Data.Connection.Name}}{{end}}
+
+{{define "content"}}
+<p><a href="/databases">&larr; Semua database</a></p>
+
+<hgroup>
+  <h1>{{.Data.Connection.Name}}</h1>
+  <p>
+    <code>{{.Data.Connection.Username}}@{{.Data.Connection.Host}}:{{.Data.Connection.Port}}/{{.Data.Connection.Database}}</code>
+    &middot;
+    {{if eq .Data.Level "view_edit"}}<mark>View + Edit</mark>{{else}}<mark>View Only</mark>{{end}}
+  </p>
+</hgroup>
+
+<p><a href="/databases/{{.Data.Connection.ID}}/migrations" role="button" class="secondary">Riwayat migration</a></p>
+
+{{if .Data.Schemas}}
+  {{range .Data.Schemas}}
+  <section>
+    <h2>Schema {{.Schema.Name}} <small>({{.Schema.Tables}} objek)</small></h2>
+    {{if .Tables}}
+    <table>
+      <thead>
+        <tr><th>Tabel</th><th>Jenis</th><th>Kolom</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{$schema := .Schema.Name}}
+        {{$dbID := $.Data.Connection.ID}}
+        {{range .Tables}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td>{{.Kind}}</td>
+          <td>{{.Columns}}</td>
+          <td><a href="/databases/{{$dbID}}/tables/{{$schema}}/{{.Name}}">Lihat</a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p>Schema ini masih kosong.</p>
+    {{end}}
+  </section>
+  {{end}}
+{{else}}
+<p>Database ini belum punya schema yang bisa dilihat.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,50 @@
+{{define "title"}}Migration v{{.Data.Migration.Version}}{{end}}
+
+{{define "content"}}
+{{with .Data.Migration}}
+<p><a href="/databases/{{.DatabaseID}}/migrations">&larr; Riwayat migration</a></p>
+<hgroup>
+  <h1>v{{.Version}} · {{.Description}}</h1>
+  <p>Status: <strong>{{.Status}}</strong></p>
+</hgroup>
+
+<table>
+  <tbody>
+    <tr><th>Dibuat</th><td>{{.CreatedBy}}, {{.CreatedAt.Format "2006-01-02 15:04:05"}}</td></tr>
+    <tr><th>Dijalankan oleh</th><td>{{or .ExecutedBy "-"}}</td></tr>
+    <tr><th>Mulai</th><td>{{with .StartedAt}}{{.Format "2006-01-02 15:04:05"}}{{else}}-{{end}}</td></tr>
+    <tr><th>Selesai</th><td>{{with .FinishedAt}}{{.Format "2006-01-02 15:04:05"}}{{else}}-{{end}}</td></tr>
+  </tbody>
+</table>
+
+{{with .Error}}
+<h2>Error</h2>
+<pre class="error">{{.}}</pre>
+{{end}}
+{{end}}
+
+{{if and .Data.CanEdit (eq .Data.Migration.Status "draft")}}
+<h2>Edit draft</h2>
+{{with .Data.Form.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/migrations/{{.Data.Migration.ID}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <label>
+    Deskripsi
+    <input name="description" value="{{.Data.Form.Description}}" required>
+  </label>
+  <label>
+    SQL
+    <textarea name="sql" rows="12" spellcheck="false" required>{{.Data.Form.SQL}}</textarea>
+  </label>
+  <button type="submit" class="secondary">Simpan draft</button>
+</form>
+
+<form method="post" action="/migrations/{{.Data.Migration.ID}}/execute">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <button type="submit">Jalankan migration</button>
+</form>
+{{else}}
+<h2>SQL</h2>
+<pre><code>{{.Data.Migration.SQL}}</code></pre>
+{{end}}
+{{end}}

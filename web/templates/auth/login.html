@@ -1,0 +1,20 @@
+{{define "title"}}Login{{end}}
+
+{{define "content"}}
+<article class="narrow">
+  <h1>Login</h1>
+  {{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>
+      Username
+      <input name="username" autocomplete="username" required autofocus>
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">Masuk</button>
+  </form>
+</article>
+{{end}}

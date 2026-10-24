@@ -1,0 +1,133 @@
+{{define "title"}}Group: {{.Data.Group.Name}}{{end}}
+
+{{define "content"}}
+<h1>{{.Data.Group.Name}}</h1>
+<p><a href="/admin/groups">← Kembali ke daftar group</a></p>
+
+{{with .Data.Group}}
+<details>
+  <summary role="button" class="outline">✏ Edit Group</summary>
+  <form method="post" action="/admin/groups/{{.ID}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+    <label>
+      Nama
+      <input name="name" value="{{.Name}}" required>
+    </label>
+    <label>
+      Deskripsi
+      <input name="description" value="{{.Description}}">
+    </label>
+    <button type="submit">Simpan</button>
+  </form>
+</details>
+{{end}}
+
+<hr>
+
+<h2>Anggota ({{len .Data.Members}})</h2>
+
+{{if .Data.NonMembers}}
+<details>
+  <summary role="button" class="outline">+ Tambah Anggota</summary>
+  <form method="post" action="/admin/groups/{{.Data.Group.ID}}/members">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>
+      User
+      <select name="user_id" required>
+        <option value="">— pilih user —</option>
+        {{range .Data.NonMembers}}
+        <option value="{{.ID}}">{{.Username}}</option>
+        {{end}}
+      </select>
+    </label>
+    <button type="submit">Tambah</button>
+  </form>
+</details>
+{{end}}
+
+<table>
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Ditambahkan</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Data.Members}}
+    <tr>
+      <td>{{.Username}}</td>
+      <td>{{.AddedAt.Format "2006-01-02 15:04"}}</td>
+      <td>
+        <form method="post" action="/admin/groups/{{$.Data.Group.ID}}/members/{{.UserID}}/remove" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button type="submit" class="outline secondary" style="padding:.3rem .6rem;margin:0">Keluarkan</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="3">Belum ada anggota.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+
+<hr>
+
+<h2>Akses Database</h2>
+
+{{if .Data.Databases}}
+<details>
+  <summary role="button" class="outline">+ Tambah / Ubah Akses</summary>
+  <form method="post" action="/admin/groups/{{.Data.Group.ID}}/grants">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>
+      Database
+      <select name="database_id" required>
+        <option value="">— pilih database —</option>
+        {{range .Data.Databases}}
+        <option value="{{.ID}}">{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>
+      Level
+      <select name="level" required>
+        <option value="view_only">View Only</option>
+        <option value="view_edit">View & Edit</option>
+      </select>
+    </label>
+    <button type="submit">Simpan</button>
+  </form>
+</details>
+{{else}}
+<p>Belum ada koneksi database. Tambah dulu di <a href="/admin/databases">Koneksi Database</a>.</p>
+{{end}}
+
+<table>
+  <thead>
+    <tr>
+      <th>Database</th>
+      <th>Level</th>
+      <th>Diberikan</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Data.Grants}}
+    <tr>
+      <td>{{.DatabaseName}}</td>
+      <td>{{.Level}}</td>
+      <td>{{.GrantedAt.Format "2006-01-02 15:04"}}</td>
+      <td>
+        <form method="post" action="/admin/groups/{{$.Data.Group.ID}}/grants/{{.DatabaseID}}/revoke" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button type="submit" class="outline secondary" style="padding:.3rem .6rem;margin:0">Cabut</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4">Belum ada akses database.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
