@@ -54,7 +54,7 @@ type detailPage struct {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := pathID(w, r, "dbID")
+	dbID, ok := h.pathID(w, r, "dbID")
 	if !ok {
 		return
 	}
@@ -73,7 +73,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := pathID(w, r, "dbID")
+	dbID, ok := h.pathID(w, r, "dbID")
 	if !ok {
 		return
 	}
@@ -90,7 +90,7 @@ func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := pathID(w, r, "dbID")
+	dbID, ok := h.pathID(w, r, "dbID")
 	if !ok {
 		return
 	}
@@ -113,7 +113,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := h.pathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -130,7 +130,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := h.pathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -149,7 +149,7 @@ func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
 // showDetail menampilkan detail migration. Kalau formError terisi, form edit
 // diisi ulang dengan input user beserta pesan error-nya.
 func (h *Handler) showDetail(w http.ResponseWriter, r *http.Request, formError string) {
-	id, ok := pathID(w, r, "id")
+	id, ok := h.pathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -193,10 +193,10 @@ func isInputError(err error) bool {
 		errors.Is(err, ErrNotTransactional) || errors.Is(err, ErrPendingExists) || errors.Is(err, ErrNotDraft)
 }
 
-func pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
+func (h *Handler) pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(r.PathValue(name))
 	if err != nil {
-		http.NotFound(w, r)
+		h.fail(w, r, ErrNotFound)
 		return uuid.Nil, false
 	}
 	return id, true

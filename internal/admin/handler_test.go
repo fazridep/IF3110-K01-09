@@ -46,7 +46,7 @@ func post(mux *http.ServeMux, target string, form url.Values, u *auth.User) *htt
 }
 
 func TestBukanAdminDitolak(t *testing.T) {
-	mux, _, store := newTestMux(t)
+	mux, view, store := newTestMux(t)
 	biasa := &auth.User{ID: uuid.New(), Username: "biasa"}
 
 	for _, path := range []string{"/admin/users", "/admin/groups"} {
@@ -56,6 +56,9 @@ func TestBukanAdminDitolak(t *testing.T) {
 		mux.ServeHTTP(rec, r)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("GET %s: mau 403, dapat %d", path, rec.Code)
+		}
+		if view.name != "admin/error" {
+			t.Errorf("GET %s: mau halaman admin/error, dapat %q", path, view.name)
 		}
 	}
 
@@ -116,6 +119,7 @@ func TestTemplateRender(t *testing.T) {
 			Databases: []Database{{ID: uuid.New(), Name: "toko"}},
 		}},
 		{"admin/group_detail", groupDetailPage{Group: group}},
+		{"admin/error", struct{ Message string }{"Halaman ini cuma buat Platform Admin."}},
 	}
 	for _, p := range pages {
 		rec := httptest.NewRecorder()
@@ -166,5 +170,33 @@ func TestNonaktifkanUser(t *testing.T) {
 	self := &auth.User{ID: id, Username: "gina", IsPlatformAdmin: true}
 	if rec := post(mux, path, url.Values{}, self); rec.Code != http.StatusForbidden {
 		t.Fatalf("nonaktifkan diri sendiri: mau 403, dapat %d", rec.Code)
+	}
+}
+
+func TestErrorAdminPakaiHalamanError(t *testing.T) {
+	mux, view, _ := newTestMux(t)
+	admin := &auth.User{ID: uuid.New(), Username: "admin", IsPlatformAdmin: true}
+
+	for _, tc := range []struct {
+		name, method, path string
+		code               int
+	}{
+		{"id nggak valid", "GET", "/admin/groups/bukan-uuid", http.StatusBadRequest},
+		{"group nggak ada", "GET", "/admin/groups/" + uuid.New().String(), http.StatusNotFound},
+		{"ubah admin diri sendiri", "POST", "/admin/users/" + admin.ID.String() + "/toggle-admin", http.StatusForbidden},
+	} {
+		view.name = ""
+		var rec *httptest.ResponseRecorder
+		if tc.method == "POST" {
+			rec = post(mux, tc.path, url.Values{}, admin)
+		} else {
+			r := httptest.NewRequest("GET", tc.path, nil)
+			r = r.WithContext(auth.WithUser(r.Context(), admin))
+			rec = httptest.NewRecorder()
+			mux.ServeHTTP(rec, r)
+		}
+		if rec.Code != tc.code || view.name != "admin/error" {
+			t.Errorf("%s: mau %d admin/error, dapat %d %q", tc.name, tc.code, rec.Code, view.name)
+		}
 	}
 }

@@ -113,3 +113,14 @@ func TestHandlerHalamanDitolakPakaiLayout(t *testing.T) {
 		t.Fatalf("mau 403 dengan halaman berlayout, dapat %d: %s", rr.Code, body)
 	}
 }
+
+func TestHandlerIDNggakValidPakaiLayout(t *testing.T) {
+	f := newFixture(t)
+	srv := newServer(t, f)
+
+	rr := srv.do(f.editor, http.MethodGet, "/migrations/bukan-uuid", nil)
+	body := rr.Body.String()
+	if rr.Code != http.StatusNotFound || !strings.Contains(body, "<html") || !strings.Contains(body, "nggak ditemukan") {
+		t.Fatalf("mau 404 dengan halaman berlayout, dapat %d: %s", rr.Code, body)
+	}
+}
