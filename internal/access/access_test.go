@@ -149,7 +149,7 @@ func TestRequirePlatformAdminBlocks(t *testing.T) {
 	reached := false
 	handler := RequirePlatformAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
-	}))
+	}), nil)
 
 	// Tanpa user di context → harus ditolak
 	req := httptest.NewRequest("GET", "/admin/users", nil)
@@ -204,7 +204,7 @@ func TestRequirePlatformAdminLolos(t *testing.T) {
 	reached := false
 	handler := RequirePlatformAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
-	}))
+	}), nil)
 
 	req := httptest.NewRequest("GET", "/admin/users", nil)
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{ID: uuid.New(), IsPlatformAdmin: true}))
@@ -250,5 +250,17 @@ func TestCanViewCanEdit(t *testing.T) {
 		if view != tc.canView || edit != tc.canEd {
 			t.Errorf("%s: CanView=%v CanEdit=%v, mau %v %v", tc.name, view, edit, tc.canView, tc.canEd)
 		}
+	}
+}
+
+func TestRequirePlatformAdminPakaiHalamanDitolak(t *testing.T) {
+	denied := false
+	handler := RequirePlatformAdmin(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { denied = true }),
+	)
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/admin/users", nil))
+	if !denied {
+		t.Error("user bukan admin harusnya diterusin ke handler penolakan")
 	}
 }

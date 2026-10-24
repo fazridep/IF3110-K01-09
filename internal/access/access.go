@@ -84,10 +84,15 @@ func (s *Store) CanEdit(ctx context.Context, userID, dbID uuid.UUID) (bool, erro
 }
 
 // RequirePlatformAdmin adalah middleware yang menolak request dengan 403
-// kalau user bukan Platform Admin.
-func RequirePlatformAdmin(next http.Handler) http.Handler {
+// kalau user bukan Platform Admin. denied dipakai buat nampilin halaman
+// penolakannya; kalau nil, cukup teks biasa.
+func RequirePlatformAdmin(next, denied http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !IsPlatformAdmin(r.Context()) {
+			if denied != nil {
+				denied.ServeHTTP(w, r)
+				return
+			}
 			http.Error(w, "hanya Platform Admin yang boleh mengakses halaman ini", http.StatusForbidden)
 			return
 		}
