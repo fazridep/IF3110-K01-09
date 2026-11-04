@@ -8,7 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/if3110/tubes-db-platform/internal/pgerr"
 )
 
 // selectMigration mengambil migration beserta username pembuat dan pelaksananya.
@@ -65,7 +66,7 @@ func (s *Service) insertDraft(ctx context.Context, databaseID, userID uuid.UUID,
 		FROM database_migrations WHERE database_id=$1
 		RETURNING id`,
 		databaseID, description, sql, userID).Scan(&id)
-	if isUniqueViolation(err) {
+	if pgerr.IsUniqueViolation(err) {
 		return nil, ErrPendingExists
 	}
 	if err != nil {
@@ -113,9 +114,4 @@ func (s *Service) finish(ctx context.Context, id uuid.UUID, status Status, errTe
 		return fmt.Errorf("migration: simpan hasil eksekusi: %w", err)
 	}
 	return nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

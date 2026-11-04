@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
+	"github.com/if3110/tubes-db-platform/internal/httpx"
 	"github.com/if3110/tubes-db-platform/internal/testutil"
 	"github.com/if3110/tubes-db-platform/internal/web"
 )
@@ -21,8 +22,13 @@ type fakeView struct {
 }
 
 func (f *fakeView) Render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	f.RenderStatus(w, r, http.StatusOK, name, data)
+}
+
+func (f *fakeView) RenderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
 	f.name = name
 	f.data = data
+	w.WriteHeader(status)
 }
 
 func newTestMux(t *testing.T) (*http.ServeMux, *fakeView, *Store) {
@@ -30,7 +36,7 @@ func newTestMux(t *testing.T) (*http.ServeMux, *fakeView, *Store) {
 	db := testutil.DB(t)
 	store := NewStore(db)
 	view := &fakeView{}
-	h := NewHandler(db, store, auth.NewStore(db, auth.SessionConfig{}), view)
+	h := NewHandler(store, auth.NewStore(db, auth.SessionConfig{}), view)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux, view, store
@@ -57,8 +63,8 @@ func TestBukanAdminDitolak(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("GET %s: mau 403, dapat %d", path, rec.Code)
 		}
-		if view.name != "admin/error" {
-			t.Errorf("GET %s: mau halaman admin/error, dapat %q", path, view.name)
+		if view.name != httpx.ErrorTemplate {
+			t.Errorf("GET %s: mau halaman error, dapat %q", path, view.name)
 		}
 	}
 
@@ -119,7 +125,7 @@ func TestTemplateRender(t *testing.T) {
 			Databases: []Database{{ID: uuid.New(), Name: "toko"}},
 		}},
 		{"admin/group_detail", groupDetailPage{Group: group}},
-		{"admin/error", struct{ Message string }{"Halaman ini cuma buat Platform Admin."}},
+		{httpx.ErrorTemplate, httpx.ErrorPage{Message: "Halaman ini cuma buat Platform Admin."}},
 	}
 	for _, p := range pages {
 		rec := httptest.NewRecorder()
@@ -195,8 +201,20 @@ func TestErrorAdminPakaiHalamanError(t *testing.T) {
 			rec = httptest.NewRecorder()
 			mux.ServeHTTP(rec, r)
 		}
-		if rec.Code != tc.code || view.name != "admin/error" {
-			t.Errorf("%s: mau %d admin/error, dapat %d %q", tc.name, tc.code, rec.Code, view.name)
+		if rec.Code != tc.code || view.name != httpx.ErrorTemplate {
+			t.Errorf("%s: mau %d halaman error, dapat %d %q", tc.name, tc.code, rec.Code, view.name)
 		}
+	}
+}
+
+func TestSetGrantLevelNggakValid(t *testing.T) {
+	mux, view, _ := newTestMux(t)
+	admin := &auth.User{ID: uuid.New(), Username: "admin", IsPlatformAdmin: true}
+
+	path := "/admin/groups/" + uuid.New().String() + "/grants"
+	form := url.Values{"database_id": {uuid.New().String()}, "level": {"superadmin"}}
+	rec := post(mux, path, form, admin)
+	if rec.Code != http.StatusBadRequest || view.name != httpx.ErrorTemplate {
+		t.Fatalf("mau 400 halaman error, dapat %d %q", rec.Code, view.name)
 	}
 }

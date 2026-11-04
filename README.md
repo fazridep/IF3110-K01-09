@@ -95,15 +95,18 @@ test otomatis di-skip kalau `TEST_DATABASE_URL` kosong.
 ## Struktur
 
 ```
-cmd/server/          entry point: server, migrate, seed-admin
+cmd/server/          entry point: migrate, seed-admin (main.go), wiring server (server.go)
 internal/auth/       login, session, CSRF
 internal/access/     aturan izin
 internal/admin/      halaman user, group, dan grant
 internal/dbmgmt/     koneksi database target dan viewer
 internal/migration/  migration database target
 internal/store/      koneksi dan runner migration database metadata
+internal/web/        renderer template dan router
+internal/httpx/      kontrak Renderer, halaman error, parsing id (dipakai semua handler)
+internal/pgerr/      pemetaan kode error PostgreSQL
 migrations/metadata/ SQL tabel platform
-web/templates/       template HTML per fitur
+web/templates/       template HTML per fitur, shared/ buat halaman bersama
 ```
 
 ## Dokumentasi

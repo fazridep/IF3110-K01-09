@@ -22,12 +22,12 @@ Template ikut fitur di `web/templates/<fitur>/`, layout di `web/templates/layout
 2. Query ditaruh di package fiturnya masing-masing, bukan di `internal/store`.
 3. Arah import jangan dibalik biar nggak import cycle:
    ```
+   httpx, pgerr, config   (leaf, boleh dipakai siapa saja)
    auth  <-  access  <-  admin
                ^
-   dbmgmt -----+
-     ^
-   migration (pakai access + dbmgmt)
+             dbmgmt  <-  migration (lewat interface)
    ```
+   Detailnya di ADR-012.
 4. Migration tabel platform di `migrations/metadata/`, nomor sesuai jatah di `migrations/README.md`.
 
 ## Hari 1 (19-20 Okt): Fondasi + Kontrak
@@ -49,9 +49,9 @@ ID user bertipe `uuid.UUID`, jadi foreign key ke `users(id)` pakai `UUID`.
 | `auth` | `(*Store).RequireLogin` (middleware), `CurrentUser(ctx)` | semua handler |
 | `auth` | `(*Store).RevokeUserSessions(ctx, userID)` | admin (saat akses dicabut / user dinonaktifkan) |
 | `auth` | `(*Store).ForceRotate(ctx, userID)` | admin (saat user dijadikan Platform Admin) |
-| `web` | `(*Renderer).Render(w, r, "fitur/halaman", data)` | semua handler yang nampilin halaman |
-| `access` | `IsPlatformAdmin(ctx, userID)`, `RequirePlatformAdmin` | admin, dbmgmt |
-| `access` | `EffectiveLevel(ctx, userID, dbID)`, `RequireDBAccess(level)` | dbmgmt, migration |
+| `httpx` | `Renderer` (`Render`, `RenderStatus`), `Error(w, r, view, status, ErrorPage)`, `PathUUID` | semua handler yang nampilin halaman |
+| `access` | `IsPlatformAdmin(ctx)`, `RequirePlatformAdmin` | admin, dbmgmt |
+| `access` | `EffectiveLevel(ctx, userID, dbID)`, `Level.Valid()` | dbmgmt, admin |
 | `access` | `CanView(ctx, userID, dbID)`, `CanEdit(ctx, userID, dbID)` balikin bool | migration |
 | `dbmgmt` | `Pool(ctx, dbID)` (koneksi ke db target) | migration |
 
@@ -139,3 +139,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
   tes manual alur lengkap (login, grant, viewer, migration sukses/gagal, akses ditolak)
 - 23 Okt (Zahran): fix halaman database waktu db target mati (502, bukan 500), nonaktifkan user,
   halaman error migration pakai layout, README final
+- 4 Nov (Fazri): refactor struktur (ADR-012): `httpx` dan `pgerr` bersama, satu halaman error,
+  `dbmgmt` pakai `access` langsung, handler dbmgmt/admin dipecah per audiens, wiring di `server.go`

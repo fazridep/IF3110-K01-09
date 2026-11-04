@@ -57,6 +57,10 @@ func NewRenderer() (*Renderer, error) {
 }
 
 func (rn *Renderer) Render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	rn.RenderStatus(w, r, http.StatusOK, name, data)
+}
+
+func (rn *Renderer) RenderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
 	page, ok := rn.pages[name]
 	if !ok {
 		log.Printf("web: halaman %q tidak ada", name)
@@ -78,5 +82,6 @@ func (rn *Renderer) Render(w http.ResponseWriter, r *http.Request, name string, 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	_, _ = buf.WriteTo(w)
 }
