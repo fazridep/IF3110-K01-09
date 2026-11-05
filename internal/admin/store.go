@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 )
 
@@ -61,6 +62,7 @@ type Database struct {
 var (
 	ErrUsernameTaken = errors.New("admin: username sudah dipakai")
 	ErrInvalidUser   = errors.New("admin: username dan password wajib diisi")
+	ErrInvalidLevel  = errors.New("admin: level harus view_only atau view_edit")
 )
 
 // --- Store ---
@@ -335,9 +337,9 @@ func (s *Store) ListDatabases(ctx context.Context) ([]Database, error) {
 	return dbs, nil
 }
 
-func (s *Store) SetGrant(ctx context.Context, groupID, databaseID uuid.UUID, level string) error {
-	if level != "view_only" && level != "view_edit" {
-		return errors.New("admin: level harus view_only atau view_edit")
+func (s *Store) SetGrant(ctx context.Context, groupID, databaseID uuid.UUID, level access.Level) error {
+	if !level.Valid() {
+		return ErrInvalidLevel
 	}
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO group_database_access (group_id, database_id, level)

@@ -8,18 +8,15 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
+	"github.com/if3110/tubes-db-platform/internal/httpx"
 )
-
-type Renderer interface {
-	Render(w http.ResponseWriter, r *http.Request, name string, data any)
-}
 
 type Handler struct {
 	svc  *Service
-	view Renderer
+	view httpx.Renderer
 }
 
-func NewHandler(svc *Service, view Renderer) *Handler {
+func NewHandler(svc *Service, view httpx.Renderer) *Handler {
 	return &Handler{svc: svc, view: view}
 }
 
@@ -183,9 +180,11 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	default:
 		log.Printf("migration: %v", err)
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	h.view.Render(w, r, "migration/error", struct{ Message string }{msg})
+	httpx.Error(w, r, h.view, status, httpx.ErrorPage{
+		Message:   msg,
+		BackURL:   "/databases",
+		BackLabel: "Kembali ke daftar database",
+	})
 }
 
 func isInputError(err error) bool {
@@ -194,10 +193,9 @@ func isInputError(err error) bool {
 }
 
 func (h *Handler) pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
-	id, err := uuid.Parse(r.PathValue(name))
-	if err != nil {
+	id, ok := httpx.PathUUID(r, name)
+	if !ok {
 		h.fail(w, r, ErrNotFound)
-		return uuid.Nil, false
 	}
-	return id, true
+	return id, ok
 }

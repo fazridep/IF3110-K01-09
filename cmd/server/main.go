@@ -1,3 +1,5 @@
+// Command server menjalankan platform. Tanpa argumen jalanin HTTP server
+// (server.go); "migrate" dan "seed-admin" buat setup database metadata.
 package main
 
 import (
@@ -5,24 +7,17 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"syscall"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
-	"github.com/if3110/tubes-db-platform/internal/access"
-	"github.com/if3110/tubes-db-platform/internal/admin"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
-	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
-	"github.com/if3110/tubes-db-platform/internal/migration"
 	"github.com/if3110/tubes-db-platform/internal/store"
-	"github.com/if3110/tubes-db-platform/internal/web"
 	"github.com/if3110/tubes-db-platform/migrations"
 )
 
@@ -48,60 +43,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "perintah tidak dikenal: %s\npakai: migrate | seed-admin | (tanpa argumen untuk jalanin server)\n", cmd)
 		os.Exit(1)
 	}
-}
-
-func runServer(cfg *config.Config) {
-	db := mustOpenDB(cfg.MetadataDBURL)
-	defer db.Close()
-
-	view, err := web.NewRenderer()
-	if err != nil {
-		log.Fatal(err)
-	}
-	sessions := auth.NewStore(db, auth.SessionConfig{
-		IdleTimeout:      cfg.SessionIdleTimeout,
-		AbsoluteTimeout:  cfg.SessionAbsoluteTimeout,
-		RotationInterval: cfg.SessionRotationInterval,
-		GracePeriod:      cfg.SessionGracePeriod,
-		Secure:           cfg.IsProduction(),
-	})
-	authHandler := auth.NewHandler(db, sessions, view)
-
-	cipher, err := dbmgmt.NewCipher(cfg.CredentialEncryptionKey)
-	if err != nil {
-		log.Fatalf("%v\nisi CREDENTIAL_ENCRYPTION_KEY di .env, bikin dengan: openssl rand -base64 32", err)
-	}
-	dbStore := dbmgmt.NewStore(db, cipher)
-	pools := dbmgmt.NewManager(dbStore)
-	defer pools.Close()
-
-	// Adapter dari access ke tipe fungsi dbmgmt (ADR-009).
-	perms := access.NewStore(db)
-	isAdmin := func(ctx context.Context, userID uuid.UUID) (bool, error) {
-		u := auth.CurrentUser(ctx)
-		return u != nil && u.ID == userID && access.IsPlatformAdmin(ctx), nil
-	}
-	level := func(ctx context.Context, userID, dbID uuid.UUID) (string, error) {
-		l, err := perms.EffectiveLevel(ctx, userID, dbID)
-		return string(l), err
-	}
-	dbHandler := dbmgmt.NewHandler(dbStore, pools, view, isAdmin, level)
-
-	adminStore := admin.NewStore(db)
-	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
-
-	migService := migration.NewService(db, perms, pools)
-	migHandler := migration.NewHandler(migService, view)
-
-	register := func(mux *http.ServeMux) {
-		dbHandler.RegisterRoutes(mux)
-		adminHandler.RegisterRoutes(mux)
-		migHandler.RegisterRoutes(mux)
-	}
-	handler := web.NewRouter(sessions, authHandler, register, view, cfg.IsProduction())
-
-	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
-	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))
 }
 
 func runMigrate(cfg *config.Config) {

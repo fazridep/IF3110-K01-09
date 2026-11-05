@@ -17,8 +17,12 @@ type fakeView struct {
 }
 
 func (v *fakeView) Render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	v.RenderStatus(w, r, http.StatusOK, name, data)
+}
+
+func (v *fakeView) RenderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
 	v.name, v.data = name, data
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 }
 
 func newTestHandler(t *testing.T) (*Handler, *fakeView, *fakeClock) {

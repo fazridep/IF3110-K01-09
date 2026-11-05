@@ -99,7 +99,7 @@ berubah, bikin file baru.
 
 ## ADR-006 Frontend server-rendered dengan layout bersama
 
-Status: diterima, 20 Okt
+Status: diterima, 20 Okt. Poin interface `Renderer` per package diganti ADR-012.
 
 Konteks: spesifikasi menyarankan Go template, dan session berbasis cookie lebih
 gampang tanpa SPA.
@@ -157,7 +157,7 @@ ulang password-nya.
 
 ## ADR-009 dbmgmt menunggu access lewat fungsi yang di-inject
 
-Status: selesai, 22 Okt. Dua fungsi di `main.go` sudah disambung ke `access`.
+Status: diganti ADR-012, 4 Nov.
 
 Konteks: `dbmgmt` butuh dua hal dari `access`: apakah user Platform Admin, dan
 level aksesnya ke satu database. Package `access` belum ada waktu dbmgmt
@@ -219,3 +219,48 @@ sama kayak user lain.
 
 Akibat: admin bisa ngatur `/admin/*` tanpa otomatis bisa baca data. Buat demo,
 admin perlu dimasukin ke group dulu.
+
+## ADR-012 Helper HTTP bersama dan dbmgmt pakai access langsung
+
+Status: diterima, 4 Nov
+
+Konteks: setelah semua fitur jadi, ada beberapa hal yang ditulis ulang di tiap
+package:
+- interface `Renderer` ada empat salinan (auth, admin, dbmgmt, migration);
+- tiga template `error.html` yang isinya sama, cuma beda tautan kembali;
+- tiap handler `fail` nulis `WriteHeader` sebelum render, jadi kalau template
+  gagal, client tetap dapat status lama dengan body error;
+- cek kode error PostgreSQL (`23505`, `23503`) di-hardcode di dbmgmt dan migration;
+- `dbmgmt` masih pakai `AdminChecker`/`LevelResolver` dan konstanta level
+  sendiri dari ADR-009, padahal `access` sudah ada. Akibatnya aturan "admin
+  atau bukan" ada di dua tempat (`dbmgmt.requireAdmin` dan
+  `access.RequirePlatformAdmin`).
+
+Keputusan:
+- Package leaf `internal/httpx` (nggak import package internal lain) berisi
+  `Renderer`, `Error` + `ErrorPage`, dan `PathUUID`. Semua handler pakai ini.
+  `Renderer` punya `RenderStatus`, dan status baru ditulis setelah template
+  berhasil dirender.
+- Satu halaman error bersama `web/templates/shared/error.html`. Tiap fitur cuma
+  ngisi pesan dan tautan kembali.
+- Package leaf `internal/pgerr` buat `IsUniqueViolation` dan `IsForeignKeyViolation`.
+- `dbmgmt` import `access`: route admin lewat `access.RequirePlatformAdmin`,
+  level akses lewat interface kecil `dbmgmt.Permissions`
+  (`EffectiveLevel(...) (access.Level, error)`) yang dipenuhi `access.Store`.
+- `admin` bergantung ke interface `admin.Sessions`, bukan `*auth.Store`, dan
+  validasi level grant pakai `access.Level.Valid`.
+- `cmd/server/server.go` satu-satunya tempat package fitur disambung.
+
+Arah import sekarang:
+
+```
+httpx, pgerr, config        (leaf, dipakai siapa saja)
+auth  <-  access  <-  admin
+            ^
+          dbmgmt  <-  migration (lewat interface Targets & Permissions)
+```
+
+Akibat: nambah fitur baru cukup implement `httpx.Renderer` di test palsu dan
+pakai `httpx.Error`. Aturan izin benar-benar cuma di `access` (ADR-001).
+Konsekuensinya `dbmgmt` sekarang ikut ke-build ulang kalau `access` berubah,
+tapi kontraknya cuma satu method.

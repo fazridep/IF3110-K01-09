@@ -12,8 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/if3110/tubes-db-platform/internal/pgerr"
 )
 
 var (
@@ -176,8 +177,7 @@ func (s *Store) Update(ctx context.Context, id uuid.UUID, in Input) error {
 
 func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.db.Exec(ctx, `DELETE FROM database_connections WHERE id=$1`, id)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if pgerr.IsForeignKeyViolation(err) {
 		return ErrInUse
 	}
 	if err != nil {
@@ -247,8 +247,7 @@ func (s *Store) query(ctx context.Context, where string, args ...any) ([]Connect
 }
 
 func mapWriteError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if pgerr.IsUniqueViolation(err) {
 		return ErrDuplicateName
 	}
 	return fmt.Errorf("dbmgmt: simpan koneksi: %w", err)

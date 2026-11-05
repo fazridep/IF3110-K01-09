@@ -26,10 +26,9 @@ const (
 	ViewEdit Level = "view_edit"
 )
 
-var (
-	ErrForbidden = errors.New("access: tidak punya izin")
-	ErrNoAccess  = errors.New("access: tidak punya akses ke database ini")
-)
+func (l Level) Valid() bool {
+	return l == ViewOnly || l == ViewEdit
+}
 
 // Store menyimpan koneksi ke database metadata untuk query izin.
 type Store struct {
@@ -98,40 +97,6 @@ func RequirePlatformAdmin(next, denied http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// RequireDBAccess mengembalikan middleware yang mengecek apakah user punya
-// akses minimal `minLevel` ke database tertentu. dbID diambil dari path value "id".
-func (s *Store) RequireDBAccess(minLevel Level) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			u := auth.CurrentUser(r.Context())
-			if u == nil {
-				http.Error(w, "login diperlukan", http.StatusUnauthorized)
-				return
-			}
-
-			rawID := r.PathValue("id")
-			dbID, err := uuid.Parse(rawID)
-			if err != nil {
-				http.Error(w, "id database tidak valid", http.StatusBadRequest)
-				return
-			}
-
-			level, err := s.EffectiveLevel(r.Context(), u.ID, dbID)
-			if err != nil {
-				http.Error(w, "terjadi kesalahan di server", http.StatusInternalServerError)
-				return
-			}
-
-			if !meetsMinimum(level, minLevel) {
-				http.Error(w, "tidak punya akses ke database ini", http.StatusForbidden)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }
 
 // meetsMinimum mengecek apakah level user memenuhi level minimum yang diminta.

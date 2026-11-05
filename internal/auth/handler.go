@@ -7,21 +7,17 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-)
 
-// Renderer diimplementasi oleh package web. Didefinisikan di sini supaya auth
-// nggak perlu import web (web sudah import auth).
-type Renderer interface {
-	Render(w http.ResponseWriter, r *http.Request, name string, data any)
-}
+	"github.com/if3110/tubes-db-platform/internal/httpx"
+)
 
 type Handler struct {
 	db    *pgxpool.Pool
 	store *Store
-	view  Renderer
+	view  httpx.Renderer
 }
 
-func NewHandler(db *pgxpool.Pool, store *Store, view Renderer) *Handler {
+func NewHandler(db *pgxpool.Pool, store *Store, view httpx.Renderer) *Handler {
 	return &Handler{db: db, store: store, view: view}
 }
 

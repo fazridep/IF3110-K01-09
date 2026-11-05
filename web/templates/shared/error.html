@@ -5,7 +5,11 @@
   <h1>Nggak bisa dilanjutkan</h1>
   <p>{{.Data.Message}}</p>
   <footer>
+    {{if .Data.BackURL}}
+    <a href="{{.Data.BackURL}}" role="button" class="secondary">{{.Data.BackLabel}}</a>
+    {{else}}
     <a href="/" role="button" class="secondary">Kembali ke beranda</a>
+    {{end}}
   </footer>
 </article>
 {{end}}
