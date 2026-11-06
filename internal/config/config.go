@@ -17,6 +17,11 @@ type Config struct {
 	// server yang mewajibkan (lihat main.go).
 	CredentialEncryptionKey string
 
+	LogLevel      string
+	TraceExporter string
+	ServiceName   string
+	SPADir        string
+
 	SessionIdleTimeout      time.Duration
 	SessionAbsoluteTimeout  time.Duration
 	SessionRotationInterval time.Duration
@@ -33,6 +38,10 @@ func Load() (*Config, error) {
 		AppEnv:                  envOr("APP_ENV", "development"),
 		MetadataDBURL:           os.Getenv("METADATA_DB_URL"),
 		CredentialEncryptionKey: os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
+		LogLevel:                envOr("LOG_LEVEL", "info"),
+		TraceExporter:           envOr("OTEL_TRACES_EXPORTER", "console"),
+		ServiceName:             envOr("OTEL_SERVICE_NAME", "db-platform-server"),
+		SPADir:                  envOr("SPA_DIR", "frontend/dist"),
 	}
 	if cfg.MetadataDBURL == "" {
 		return nil, errors.New("config: METADATA_DB_URL wajib diisi")

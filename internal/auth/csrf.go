@@ -4,6 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"net/http"
+	"strings"
+
+	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/obs"
 )
 
 const (
@@ -28,7 +32,7 @@ func CSRF(secure bool) func(http.Handler) http.Handler {
 			default:
 				c, err := r.Cookie(csrfCookieName)
 				if err != nil || c.Value == "" {
-					http.Error(w, "CSRF token tidak ada", http.StatusForbidden)
+					csrfFailed(w, r, "CSRF token tidak ada. Muat ulang halaman lalu coba lagi.")
 					return
 				}
 				submitted := r.FormValue(csrfFormField)
@@ -36,13 +40,22 @@ func CSRF(secure bool) func(http.Handler) http.Handler {
 					submitted = r.Header.Get(csrfHeaderName)
 				}
 				if subtle.ConstantTimeCompare([]byte(c.Value), []byte(submitted)) != 1 {
-					http.Error(w, "CSRF token tidak valid", http.StatusForbidden)
+					csrfFailed(w, r, "CSRF token tidak valid. Muat ulang halaman lalu coba lagi.")
 					return
 				}
 				next.ServeHTTP(w, r.WithContext(withCSRFToken(r.Context(), c.Value)))
 			}
 		})
 	}
+}
+
+func csrfFailed(w http.ResponseWriter, r *http.Request, msg string) {
+	obs.Warn(r.Context(), "auth.csrf_rejected", "request ditolak CSRF", "method", r.Method, "path", r.URL.Path)
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		httpx.Fail(w, r, http.StatusForbidden, "csrf", msg)
+		return
+	}
+	http.Error(w, msg, http.StatusForbidden)
 }
 
 func csrfGetOrCreate(w http.ResponseWriter, r *http.Request, secure bool) string {
