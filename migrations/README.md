@@ -16,6 +16,7 @@ bukan di sini.
 | 0200-0299 | dbmgmt | database_connections |
 | 0300-0399 | access, admin | groups, group_members, group_database_access |
 | 0400-0499 | migration | database_migrations |
+| 0500-0599 | approval | approval_requests, approval_group_decisions |
 
 Urutannya ngikutin foreign key, jadi tabel yang dirujuk dibuat lebih dulu.
 
