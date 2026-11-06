@@ -1,5 +1,5 @@
 // Package httpx berisi potongan HTTP yang dipakai bareng semua fitur:
-// kontrak Renderer, halaman error, dan parsing id dari path.
+// helper API JSON, kontrak Renderer, halaman error, dan parsing id dari path.
 //
 // Package ini sengaja nggak import package internal lain, supaya bisa dipakai
 // siapa saja (termasuk auth) tanpa bikin import cycle (ADR-012).
