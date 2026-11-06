@@ -9,19 +9,18 @@ import (
 	"github.com/if3110/tubes-db-platform/internal/httpx"
 )
 
-func TestRenderLoginPage(t *testing.T) {
+// Tombol logout cuma muncul kalau sudah login.
+func TestRenderLayoutWithoutUser(t *testing.T) {
 	view, err := NewRenderer()
 	if err != nil {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
-	view.Render(rr, httptest.NewRequest(http.MethodGet, "/login", nil), "auth/login", struct{ Error string }{"Username atau password salah."})
+	view.Render(rr, httptest.NewRequest(http.MethodGet, "/x", nil), httpx.ErrorTemplate, httpx.ErrorPage{Message: "Contoh."})
 
 	body := rr.Body.String()
-	for _, want := range []string{`name="csrf_token"`, "Username atau password salah.", "<title>Login"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("halaman login nggak ada %q", want)
-		}
+	if !strings.Contains(body, "Contoh.") || !strings.Contains(body, "<title>") {
+		t.Errorf("halaman harus dirender dengan layout: %s", body)
 	}
 	if strings.Contains(body, "Logout") {
 		t.Error("tombol logout nggak boleh muncul kalau belum login")

@@ -14,7 +14,7 @@ import (
 )
 
 // Renderer menggabungkan tiap halaman di web/templates/<fitur>/*.html dengan
-// layout. Nama halaman ditulis "<fitur>/<file>", misalnya "auth/login".
+// layout. Nama halaman ditulis "<fitur>/<file>", misalnya "admin/users".
 type Renderer struct {
 	pages map[string]*template.Template
 }
