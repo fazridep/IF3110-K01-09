@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
+	"github.com/if3110/tubes-db-platform/internal/httpx"
 )
 
 // Level merepresentasikan tingkat akses ke sebuah database.
@@ -97,6 +98,102 @@ func RequirePlatformAdmin(next, denied http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireAPIPlatformAdmin menolak request JSON API dengan 403 problem+json
+// kalau user bukan Platform Admin.
+func RequireAPIPlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !IsPlatformAdmin(r.Context()) {
+			httpx.Fail(w, r, http.StatusForbidden, httpx.CodeForbidden, "Hanya Platform Admin yang boleh mengakses endpoint ini.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ApproverGroup merepresentasikan group yang memiliki akses (view_only / view_edit)
+// ke suatu database beserta leader-nya.
+type ApproverGroup struct {
+	GroupID        uuid.UUID
+	GroupName      string
+	LeaderID       *uuid.UUID
+	LeaderUsername string
+	Level          Level
+}
+
+// IsGroupLeader mengecek apakah user adalah leader dari group tertentu.
+func (s *Store) IsGroupLeader(ctx context.Context, userID, groupID uuid.UUID) (bool, error) {
+	var ok bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM groups g
+			JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = g.leader_id
+			WHERE g.id = $1 AND g.leader_id = $2
+		)`, groupID, userID,
+	).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("access: cek group leader: %w", err)
+	}
+	return ok, nil
+}
+
+// DatabaseApproverGroups mengembalikan semua group yang memiliki grant akses
+// (baik view_only maupun view_edit) ke database tertentu beserta info leader-nya.
+func (s *Store) DatabaseApproverGroups(ctx context.Context, dbID uuid.UUID) ([]ApproverGroup, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT g.id, g.name, g.leader_id, COALESCE(u.username, ''), gda.level
+		FROM group_database_access gda
+		JOIN groups g ON g.id = gda.group_id
+		LEFT JOIN users u ON u.id = g.leader_id AND u.disabled_at IS NULL
+		WHERE gda.database_id = $1
+		ORDER BY g.name`, dbID)
+	if err != nil {
+		return nil, fmt.Errorf("access: list approver groups: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ApproverGroup
+	for rows.Next() {
+		var ag ApproverGroup
+		var lvl string
+		if err := rows.Scan(&ag.GroupID, &ag.GroupName, &ag.LeaderID, &ag.LeaderUsername, &lvl); err != nil {
+			return nil, fmt.Errorf("access: scan approver group: %w", err)
+		}
+		if ag.LeaderUsername == "" {
+			ag.LeaderID = nil
+		}
+		ag.Level = Level(lvl)
+		out = append(out, ag)
+	}
+	return out, rows.Err()
+}
+
+// LeaderGroupsForDatabase mengembalikan daftar group_id yang memiliki akses ke dbID
+// di mana userID adalah leader aktif dari group tersebut.
+func (s *Store) LeaderGroupsForDatabase(ctx context.Context, userID, dbID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT g.id
+		FROM group_database_access gda
+		JOIN groups g ON g.id = gda.group_id
+		JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = g.leader_id
+		JOIN users u ON u.id = g.leader_id AND u.disabled_at IS NULL
+		WHERE gda.database_id = $1 AND g.leader_id = $2
+		ORDER BY g.name`, dbID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("access: leader groups for database: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("access: scan leader group id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // meetsMinimum mengecek apakah level user memenuhi level minimum yang diminta.

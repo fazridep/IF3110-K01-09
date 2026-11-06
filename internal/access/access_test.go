@@ -264,3 +264,71 @@ func TestRequirePlatformAdminPakaiHalamanDitolak(t *testing.T) {
 		t.Error("user bukan admin harusnya diterusin ke handler penolakan")
 	}
 }
+
+func TestRequireAPIPlatformAdmin(t *testing.T) {
+	reached := false
+	handler := RequireAPIPlatformAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/admin/users", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{ID: uuid.New(), IsPlatformAdmin: false}))
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || reached {
+		t.Fatalf("bukan admin harus 403 problem+json, dapat %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/api/admin/users", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{ID: uuid.New(), IsPlatformAdmin: true}))
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !reached {
+		t.Fatalf("admin harus lolos 200, dapat %d", rec.Code)
+	}
+}
+
+func TestGroupAndDatabaseLeader(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	u1 := createUser(t, db, "leader1", false)
+	u2 := createUser(t, db, "member2", false)
+	g1 := createGroup(t, db, "team-a")
+	g2 := createGroup(t, db, "team-b")
+	dbID := createDatabase(t, db, "prod")
+
+	addMember(t, db, g1, u1)
+	addMember(t, db, g1, u2)
+	addMember(t, db, g2, u2)
+
+	if _, err := db.Exec(ctx, `UPDATE groups SET leader_id = $1 WHERE id = $2`, u1, g1); err != nil {
+		t.Fatal(err)
+	}
+	setGrant(t, db, g1, dbID, "view_edit")
+	setGrant(t, db, g2, dbID, "view_only")
+
+	isLead, err := s.IsGroupLeader(ctx, u1, g1)
+	if err != nil || !isLead {
+		t.Fatalf("u1 harus leader g1: %v %v", isLead, err)
+	}
+	isLead, err = s.IsGroupLeader(ctx, u2, g1)
+	if err != nil || isLead {
+		t.Fatalf("u2 bukan leader g1: %v %v", isLead, err)
+	}
+
+	approvers, err := s.DatabaseApproverGroups(ctx, dbID)
+	if err != nil || len(approvers) != 2 {
+		t.Fatalf("mau 2 approver groups, dapat %d (%v)", len(approvers), err)
+	}
+	if approvers[0].LeaderUsername != "leader1" || approvers[1].LeaderID != nil {
+		t.Fatalf("leader approver groups tidak sesuai: %+v", approvers)
+	}
+
+	leadGroups, err := s.LeaderGroupsForDatabase(ctx, u1, dbID)
+	if err != nil || len(leadGroups) != 1 || leadGroups[0] != g1 {
+		t.Fatalf("u1 harus leader untuk g1 di db prod: %v %v", leadGroups, err)
+	}
+}

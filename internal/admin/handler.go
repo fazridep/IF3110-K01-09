@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"log"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -19,60 +18,49 @@ type Sessions interface {
 type Handler struct {
 	store    *Store
 	sessions Sessions
-	view     httpx.Renderer
 }
 
-func NewHandler(store *Store, sessions Sessions, view httpx.Renderer) *Handler {
-	return &Handler{store: store, sessions: sessions, view: view}
+func NewHandler(store *Store, sessions Sessions) *Handler {
+	return &Handler{store: store, sessions: sessions}
 }
 
-// RegisterRoutes mendaftarkan halaman admin. Semuanya lewat
-// access.RequirePlatformAdmin.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	admin := http.NewServeMux()
+// RegisterAPIRoutes mendaftarkan endpoint JSON administrasi platform.
+// Semua endpoint diproteksi oleh access.RequireAPIPlatformAdmin.
+func (h *Handler) RegisterAPIRoutes(mux *http.ServeMux) {
+	handle := func(pattern string, fn http.HandlerFunc) {
+		mux.Handle(pattern, access.RequireAPIPlatformAdmin(fn))
+	}
 
 	// Users
-	admin.HandleFunc("GET /admin/users", h.ListUsers)
-	admin.HandleFunc("POST /admin/users", h.CreateUser)
-	admin.HandleFunc("POST /admin/users/{id}/toggle-admin", h.ToggleAdmin)
-	admin.HandleFunc("POST /admin/users/{id}/toggle-active", h.ToggleActive)
+	handle("GET /api/admin/users", h.ListUsers)
+	handle("POST /api/admin/users", h.CreateUser)
+	handle("PATCH /api/admin/users/{id}", h.UpdateUser)
 
 	// Groups
-	admin.HandleFunc("GET /admin/groups", h.ListGroups)
-	admin.HandleFunc("POST /admin/groups", h.CreateGroup)
-	admin.HandleFunc("GET /admin/groups/{id}", h.ShowGroup)
-	admin.HandleFunc("POST /admin/groups/{id}", h.UpdateGroup)
-	admin.HandleFunc("POST /admin/groups/{id}/delete", h.DeleteGroup)
+	handle("GET /api/admin/groups", h.ListGroups)
+	handle("POST /api/admin/groups", h.CreateGroup)
+	handle("GET /api/admin/groups/{id}", h.ShowGroup)
+	handle("PATCH /api/admin/groups/{id}", h.UpdateGroup)
+	handle("PUT /api/admin/groups/{id}", h.UpdateGroup)
+	handle("DELETE /api/admin/groups/{id}", h.DeleteGroup)
+
+	// Leader
+	handle("PUT /api/admin/groups/{id}/leader", h.SetLeader)
 
 	// Members
-	admin.HandleFunc("POST /admin/groups/{id}/members", h.AddMember)
-	admin.HandleFunc("POST /admin/groups/{id}/members/{userID}/remove", h.RemoveMember)
+	handle("POST /api/admin/groups/{id}/members", h.AddMember)
+	handle("DELETE /api/admin/groups/{id}/members/{userID}", h.RemoveMember)
 
 	// Grants
-	admin.HandleFunc("POST /admin/groups/{id}/grants", h.SetGrant)
-	admin.HandleFunc("POST /admin/groups/{id}/grants/{dbID}/revoke", h.RevokeGrant)
-
-	guard := access.RequirePlatformAdmin(admin, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.fail(w, r, http.StatusForbidden, "Halaman ini cuma buat Platform Admin.")
-	}))
-	for _, p := range []string{"/admin/users", "/admin/users/", "/admin/groups", "/admin/groups/"} {
-		mux.Handle(p, guard)
-	}
+	handle("PUT /api/admin/groups/{id}/grants", h.SetGrant)
+	handle("POST /api/admin/groups/{id}/grants", h.SetGrant)
+	handle("DELETE /api/admin/groups/{id}/grants/{dbID}", h.RevokeGrant)
 }
 
 func (h *Handler) pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
 	id, ok := httpx.PathUUID(r, name)
 	if !ok {
-		h.fail(w, r, http.StatusBadRequest, "Alamatnya nggak valid.")
+		httpx.Invalid(w, r, "ID pada URL tidak valid.")
 	}
 	return id, ok
-}
-
-func (h *Handler) serverError(w http.ResponseWriter, r *http.Request, err error) {
-	log.Printf("admin: %v", err)
-	h.fail(w, r, http.StatusInternalServerError, "Terjadi kesalahan di server.")
-}
-
-func (h *Handler) fail(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	httpx.Error(w, r, h.view, status, httpx.ErrorPage{Message: msg})
 }
