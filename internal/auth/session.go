@@ -7,13 +7,17 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/obs"
 )
 
 const cookieName = "sid"
@@ -128,27 +132,64 @@ func (s *Store) ForceRotate(ctx context.Context, userID uuid.UUID) error {
 	return err
 }
 
+// RequireLogin buat halaman Go template lama, RequireAPILogin buat /api/*.
 func (s *Store) RequireLogin(next http.Handler) http.Handler {
+	return s.requireLogin(next, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, loginURL(r), http.StatusSeeOther)
+	})
+}
+
+func (s *Store) RequireAPILogin(next http.Handler) http.Handler {
+	return s.requireLogin(next, func(w http.ResponseWriter, r *http.Request) {
+		httpx.Fail(w, r, http.StatusUnauthorized, httpx.CodeUnauthenticated, "Session tidak ada atau sudah berakhir. Silakan login lagi.")
+	})
+}
+
+func (s *Store) requireLogin(next http.Handler, unauthenticated http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := tokenFromRequest(r)
 		if token == "" {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			unauthenticated(w, r)
 			return
 		}
 		sess, err := s.Validate(r.Context(), token)
 		if isSessionError(err) {
+			obs.Info(r.Context(), "auth.session_invalid", "session ditolak", obs.KeyStatus, sessionStatus(err))
 			s.clearCookie(w)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			unauthenticated(w, r)
 			return
 		}
 		if err != nil {
-			log.Printf("auth: validasi session: %v", err)
-			http.Error(w, "terjadi kesalahan di server", http.StatusInternalServerError)
+			httpx.ServerError(w, r, fmt.Errorf("auth: validasi session: %w", err))
 			return
 		}
 		s.refreshCookie(w, sess)
+		if sess.NewToken != "" {
+			obs.Debug(r.Context(), "auth.session_rotated", "session id dirotasi")
+		}
+		obs.SetActor(r.Context(), sess.User.Username, sess.User.ID.String())
 		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), sess.User)))
 	})
+}
+
+func sessionStatus(err error) string {
+	switch {
+	case errors.Is(err, ErrSessionExpired):
+		return "expired"
+	case errors.Is(err, ErrSessionRevoked):
+		return "revoked"
+	default:
+		return "not_found"
+	}
+}
+
+// loginURL cuma ngisi next dengan path lokal biar nggak jadi open redirect.
+func loginURL(r *http.Request) string {
+	p := r.URL.RequestURI()
+	if r.Method != http.MethodGet || p == "/" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") {
+		return "/login"
+	}
+	return "/login?next=" + url.QueryEscape(p)
 }
 
 func isSessionError(err error) bool {
