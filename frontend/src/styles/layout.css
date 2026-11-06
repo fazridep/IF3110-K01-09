@@ -1,0 +1,102 @@
+.app { min-height: 100dvh; display: flex; flex-direction: column; }
+
+.app-header {
+  position: sticky; top: 0; z-index: 1000;
+  height: var(--header-h);
+  display: flex; align-items: center; gap: .75rem;
+  padding: 0 var(--gutter);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.app-header .spacer { flex: 1; }
+
+.brand {
+  display: inline-flex; align-items: center; gap: .6rem;
+  color: var(--heading); font-family: var(--mono); font-weight: 600; font-size: .95rem;
+  white-space: nowrap;
+}
+.brand:hover { text-decoration: none; color: var(--heading); }
+.brand-mark {
+  width: 32px; height: 32px; border-radius: 8px; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-ink);
+}
+.brand-path .tilde { color: var(--accent); }
+.caret { display: inline-block; width: .55em; height: 1.05em; background: var(--accent); vertical-align: -.18em; margin-left: .15em; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.app-header .menu-toggle { display: none; }
+
+.app-body { flex: 1; display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+
+.sidebar {
+  position: sticky; top: var(--header-h);
+  height: calc(100dvh - var(--header-h));
+  overflow-y: auto;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  padding: 1.25rem .75rem 2rem;
+}
+.nav-group + .nav-group { margin-top: 1.4rem; }
+.nav-group-title {
+  font-family: var(--mono); font-size: .72rem; color: var(--faint);
+  padding: 0 .6rem; margin: 0 0 .4rem; letter-spacing: .02em;
+}
+.nav-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.nav-link {
+  display: flex; align-items: center; gap: .55rem;
+  font-family: var(--mono); font-size: .86rem; color: var(--muted);
+  padding: .5rem .6rem; border-radius: var(--radius-sm);
+  min-height: 40px;
+}
+.nav-link:hover, .nav-link:focus-visible { color: var(--heading); background: var(--surface-2); text-decoration: none; }
+.nav-link .marker { width: .8em; color: transparent; flex: none; }
+.nav-link[aria-current="page"] { color: var(--heading); background: var(--accent-wash); }
+.nav-link[aria-current="page"] .marker { color: var(--accent); }
+
+.main { min-width: 0; padding: 1.75rem clamp(var(--gutter), 3vw, 2.5rem) 4rem; }
+.main:focus { outline: none; }
+.main-inner { max-width: var(--content-max); margin: 0 auto; }
+
+.drawer-backdrop { display: none; }
+
+@media (max-width: 991.98px) {
+  .app-header .menu-toggle { display: inline-flex; }
+  .app-body { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed; z-index: 1100; top: var(--header-h); left: 0; bottom: 0;
+    width: min(300px, 86vw); height: auto;
+    transform: translateX(-102%);
+    transition: transform .25s var(--ease), visibility 0s linear .25s;
+    visibility: hidden;
+    box-shadow: var(--shadow-md);
+  }
+  .sidebar[data-open="true"] { transform: none; visibility: visible; transition: transform .25s var(--ease); }
+  .drawer-backdrop[data-open="true"] {
+    display: block; position: fixed; inset: var(--header-h) 0 0 0; z-index: 1050;
+    background: rgba(8, 12, 22, .4); border: 0; padding: 0; cursor: pointer;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .brand-path { display: none; }
+  .user-menu .who { display: none; }
+}
+
+.bare {
+  min-height: 100dvh; position: relative; overflow: hidden;
+  display: grid; place-items: center;
+  padding: 2rem var(--gutter);
+  background: var(--bg);
+}
+.bare::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, #000 10%, transparent 72%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, #000 10%, transparent 72%);
+  opacity: .7;
+}
+.bare > * { position: relative; }

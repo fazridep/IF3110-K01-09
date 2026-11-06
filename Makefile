@@ -1,4 +1,4 @@
-.PHONY: run build test test-db-up fmt vet db-up db-down db-logs migrate seed clean
+.PHONY: run build test test-db-up fmt vet db-up db-down db-logs migrate seed clean frontend-install frontend-dev frontend-build frontend-test
 
 export TEST_DATABASE_URL ?= postgres://test:test@localhost:5437/platform_test?sslmode=disable
 
@@ -36,4 +36,20 @@ seed:
 	go run ./cmd/server seed-admin
 
 clean:
-	rm -rf bin
+	rm -rf bin frontend/dist
+
+# --- Frontend SPA (React + Vite), lihat docs/frontend.md -------------------
+
+frontend-install:
+	cd frontend && npm ci
+
+# dev server :5173, /api diteruskan ke Go di :8080 (jalankan make run juga)
+frontend-dev:
+	cd frontend && npm run dev
+
+# build ke frontend/dist, disajikan Go di :8080
+frontend-build:
+	cd frontend && npm run build
+
+frontend-test:
+	cd frontend && npm test
