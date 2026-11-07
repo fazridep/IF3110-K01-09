@@ -316,3 +316,69 @@ func TestDeleteGroupCascadesMembers(t *testing.T) {
 		t.Error("grants masih ada setelah group dihapus")
 	}
 }
+
+func TestGroupLeaderLifecycle(t *testing.T) {
+	db := testutil.DB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	groupID, err := s.CreateGroup(ctx, "platform", "tim platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u1 := seedUser(t, db, "alice")
+	u2 := seedUser(t, db, "bob")
+
+	// Set leader ke non-member -> harus ditolak
+	if err := s.SetLeader(ctx, groupID, &u1); !errors.Is(err, ErrLeaderNotMember) {
+		t.Fatalf("bukan member harus ErrLeaderNotMember, dapat %v", err)
+	}
+
+	// Tambah u1 & u2 sebagai member, lalu jadikan u1 leader
+	if err := s.AddMember(ctx, groupID, u1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMember(ctx, groupID, u2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLeader(ctx, groupID, &u1); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := s.GetGroup(ctx, groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.LeaderID == nil || *g.LeaderID != u1 || g.LeaderUsername != "alice" {
+		t.Fatalf("leader group tidak sesuai: %+v", g)
+	}
+
+	members, err := s.ListMembers(ctx, groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 || !members[0].IsLeader || members[1].IsLeader {
+		t.Fatalf("flag IsLeader di ListMembers salah: %+v", members)
+	}
+
+	// Keluarkan u1 dari group -> leader_id otomatis reset ke nil
+	if err := s.RemoveMember(ctx, groupID, u1); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = s.GetGroup(ctx, groupID)
+	if g.LeaderID != nil {
+		t.Fatalf("leader_id harus nil setelah member dikeluarkan, dapat %v", g.LeaderID)
+	}
+
+	// Jadikan u2 leader, lalu nonaktifkan u2 -> leader_id otomatis reset ke nil
+	if err := s.SetLeader(ctx, groupID, &u2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDisabled(ctx, u2, true); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = s.GetGroup(ctx, groupID)
+	if g.LeaderID != nil {
+		t.Fatalf("leader_id harus nil setelah user dinonaktifkan, dapat %v", g.LeaderID)
+	}
+}

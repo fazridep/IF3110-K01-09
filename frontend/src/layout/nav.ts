@@ -24,8 +24,8 @@ export const navGroups: NavGroup[] = [
   {
     title: "Admin",
     items: [
-      { to: "/admin/users", label: "Users", adminOnly: true, ready: false, description: "Tambah user, jadikan Platform Admin, nonaktifkan akun." },
-      { to: "/admin/groups", label: "Groups", adminOnly: true, ready: false, description: "Group, anggota, leader, dan grant akses database." },
+      { to: "/admin/users", label: "Users", adminOnly: true, ready: true, description: "Tambah user, jadikan Platform Admin, nonaktifkan akun." },
+      { to: "/admin/groups", label: "Groups", adminOnly: true, ready: true, description: "Group, anggota, leader, dan grant akses database." },
       { to: "/admin/databases", label: "Koneksi DB", adminOnly: true, ready: false, description: "Koneksi ke database PostgreSQL target." },
     ],
   },

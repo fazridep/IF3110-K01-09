@@ -1,4 +1,4 @@
-import { createBrowserRouter, type RouteObject } from "react-router";
+import { createBrowserRouter, Outlet, type RouteObject } from "react-router";
 import { RequireAdmin, RequireAuth } from "../auth/RequireAuth";
 import { AppLayout } from "../layout/AppLayout";
 import { migrationsNav, navGroups, type NavItem } from "../layout/nav";
@@ -31,6 +31,18 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { index: true, lazy: { Component: async () => (await import("../features/home/HomePage")).default } },
+      {
+        element: (
+          <RequireAdmin>
+            <Outlet />
+          </RequireAdmin>
+        ),
+        children: [
+          { path: "admin/users", lazy: { Component: async () => (await import("../features/admin/UsersPage")).default } },
+          { path: "admin/groups", lazy: { Component: async () => (await import("../features/admin/GroupsPage")).default } },
+          { path: "admin/groups/:groupId", lazy: { Component: async () => (await import("../features/admin/GroupDetailPage")).default } },
+        ],
+      },
       ...placeholders,
       { path: "*", element: <NotFoundPage /> },
     ],

@@ -51,18 +51,20 @@ func runServer(cfg *config.Config) {
 
 	authHandler := auth.NewHandler(db, sessions)
 	dbHandler := dbmgmt.NewHandler(connections, pools, view, perms)
-	adminHandler := admin.NewHandler(admin.NewStore(db), sessions, view)
+	adminHandler := admin.NewHandler(admin.NewStore(db), sessions)
 	migHandler := migration.NewHandler(migration.NewService(db, perms, pools), view)
 
+	registerAPI := func(mux *http.ServeMux) {
+		adminHandler.RegisterAPIRoutes(mux)
+	}
 	register := func(mux *http.ServeMux) {
 		dbHandler.RegisterRoutes(mux)
-		adminHandler.RegisterRoutes(mux)
 		migHandler.RegisterRoutes(mux)
 	}
 	handler := web.NewRouter(web.Options{
 		Sessions:      sessions,
 		Auth:          authHandler,
-		RegisterAPI:   func(mux *http.ServeMux) {},
+		RegisterAPI:   registerAPI,
 		RegisterPages: register,
 		SPA:           web.NewSPA(os.DirFS(cfg.SPADir)),
 		Secure:        cfg.IsProduction(),
