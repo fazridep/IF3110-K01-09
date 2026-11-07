@@ -8,6 +8,7 @@ import (
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/admin"
+	"github.com/if3110/tubes-db-platform/internal/approval"
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/config"
 	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
@@ -52,10 +53,12 @@ func runServer(cfg *config.Config) {
 	authHandler := auth.NewHandler(db, sessions)
 	dbHandler := dbmgmt.NewHandler(connections, pools, view, perms)
 	adminHandler := admin.NewHandler(admin.NewStore(db), sessions)
+	approvalHandler := approval.NewHandler(approval.NewService(db, perms))
 	migHandler := migration.NewHandler(migration.NewService(db, perms, pools), view)
 
 	registerAPI := func(mux *http.ServeMux) {
 		adminHandler.RegisterAPIRoutes(mux)
+		approvalHandler.RegisterAPIRoutes(mux)
 	}
 	register := func(mux *http.ServeMux) {
 		dbHandler.RegisterRoutes(mux)

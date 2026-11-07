@@ -17,7 +17,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/", label: "Beranda", ready: true, description: "" },
       { to: "/databases", label: "Databases", ready: false, description: "Database yang boleh kamu akses, schema, tabel, dan isi data." },
-      { to: "/approvals", label: "Approval", ready: false, description: "Perubahan database yang menunggu persetujuan leader group." },
+      { to: "/approvals", label: "Approval", ready: true, description: "Perubahan database yang menunggu persetujuan leader group." },
       { to: "/jobs", label: "Job & queue", ready: false, description: "Status job migration: antre, berjalan, retry, selesai." },
     ],
   },

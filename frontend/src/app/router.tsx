@@ -31,6 +31,7 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { index: true, lazy: { Component: async () => (await import("../features/home/HomePage")).default } },
+      { path: "approvals", lazy: { Component: async () => (await import("../features/approvals/ApprovalsPage")).default } },
       {
         element: (
           <RequireAdmin>
