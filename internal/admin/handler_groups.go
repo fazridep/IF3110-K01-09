@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/access"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/obs"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 )
 
 type groupJSON struct {

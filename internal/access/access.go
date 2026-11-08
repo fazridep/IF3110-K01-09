@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
 )
 
 // Level merepresentasikan tingkat akses ke sebuah database.
@@ -81,6 +81,24 @@ func (s *Store) CanView(ctx context.Context, userID, dbID uuid.UUID) (bool, erro
 func (s *Store) CanEdit(ctx context.Context, userID, dbID uuid.UUID) (bool, error) {
 	level, err := s.EffectiveLevel(ctx, userID, dbID)
 	return meetsMinimum(level, ViewEdit), err
+}
+
+// ViewableDatabases mendaftar database yang boleh dilihat user, yaitu yang
+// di-grant ke salah satu group-nya.
+func (s *Store) ViewableDatabases(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT DISTINCT gda.database_id
+		FROM group_database_access gda
+		JOIN group_members gm ON gm.group_id = gda.group_id
+		WHERE gm.user_id = $1`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("access: daftar database: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("access: daftar database: %w", err)
+	}
+	return ids, nil
 }
 
 // RequirePlatformAdmin adalah middleware yang menolak request dengan 403

@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/admin"
 	"github.com/if3110/tubes-db-platform/internal/approval"
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/config"
 	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
 	"github.com/if3110/tubes-db-platform/internal/migration"
-	"github.com/if3110/tubes-db-platform/internal/obs"
+	"github.com/if3110/tubes-db-platform/internal/platform/config"
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
+	"github.com/if3110/tubes-db-platform/internal/queue"
 	"github.com/if3110/tubes-db-platform/internal/web"
 )
 
@@ -26,7 +32,9 @@ func runServer(cfg *config.Config) {
 		log.Fatal(err)
 	}
 
-	db := mustOpenDB(cfg.MetadataDBURL)
+	db := mustOpenDB(cfg.MetadataDBURL, func(c *pgxpool.Config) {
+		obs.InstrumentPool(c, "metadata", slog.LevelDebug)
+	})
 	defer db.Close()
 
 	view, err := web.NewRenderer()
@@ -51,17 +59,21 @@ func runServer(cfg *config.Config) {
 	defer pools.Close()
 
 	authHandler := auth.NewHandler(db, sessions)
-	dbHandler := dbmgmt.NewHandler(connections, pools, view, perms)
+	dbHandler := dbmgmt.NewHandler(connections, pools, perms)
 	adminHandler := admin.NewHandler(admin.NewStore(db), sessions)
-	approvalHandler := approval.NewHandler(approval.NewService(db, perms))
+	approvals := approval.NewService(db, perms)
+	approvalHandler := approval.NewHandler(approvals)
+	jobs := queue.NewService(queue.NewStore(db), perms, approvalLookup{approvals}, cfg.WorkerMaxAttempts)
+	jobHandler := queue.NewHandler(jobs)
 	migHandler := migration.NewHandler(migration.NewService(db, perms, pools), view)
 
 	registerAPI := func(mux *http.ServeMux) {
+		dbHandler.RegisterAPIRoutes(mux)
 		adminHandler.RegisterAPIRoutes(mux)
 		approvalHandler.RegisterAPIRoutes(mux)
+		jobHandler.RegisterAPIRoutes(mux)
 	}
 	register := func(mux *http.ServeMux) {
-		dbHandler.RegisterRoutes(mux)
 		migHandler.RegisterRoutes(mux)
 	}
 	handler := web.NewRouter(web.Options{
@@ -75,4 +87,25 @@ func runServer(cfg *config.Config) {
 
 	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
 	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))
+}
+
+type approvalLookup struct {
+	svc *approval.Service
+}
+
+func (a approvalLookup) Lookup(ctx context.Context, userID, approvalID uuid.UUID) (queue.Approval, error) {
+	req, err := a.svc.Get(ctx, userID, approvalID)
+	if errors.Is(err, approval.ErrNotFound) {
+		return queue.Approval{}, queue.ErrNotFound
+	}
+	if err != nil {
+		return queue.Approval{}, err
+	}
+	return queue.Approval{
+		ID:          req.ID,
+		MigrationID: req.MigrationID,
+		DatabaseID:  req.DatabaseID,
+		Action:      string(req.Action),
+		Approved:    req.Status == approval.StatusApproved,
+	}, nil
 }

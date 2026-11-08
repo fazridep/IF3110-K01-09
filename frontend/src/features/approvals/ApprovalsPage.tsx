@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type List } from "../../lib/api";
+import { useNavigate } from "react-router";
+import { api, ApiError, type JobAccepted, type List } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { Button } from "../../components/Button";
 import { CodeBlock } from "../../components/CodeBlock";
@@ -24,6 +25,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
 
 export default function ApprovalsPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [reviewItem, setReviewItem] = useState<ApprovalItem | null>(null);
   const [approveTarget, setApproveTarget] = useState<ApprovalItem | null>(null);
@@ -86,6 +88,15 @@ export default function ApprovalsPage() {
     setRejectReason("");
     setRejectTarget(item);
   }
+
+  // Aman diklik ulang: satu approval cuma jadi satu job, jadi yang kedua kalinya
+  // cuma membuka job yang sama.
+  const runMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<JobAccepted>("/api/jobs", { method: "POST", body: { approvalId: id } }),
+    onSuccess: (job) => navigate(`/jobs/${job.jobId}`),
+    onError: (err) => setActionError(err),
+  });
 
   function handleApproveSubmit(e: FormEvent) {
     e.preventDefault();
@@ -200,6 +211,16 @@ export default function ApprovalsPage() {
                       <Button variant="line" size="sm" onClick={() => setReviewItem(item)}>
                         Tinjau SQL
                       </Button>
+                      {item.status === "approved" && (
+                        <Button
+                          variant="accent"
+                          size="sm"
+                          loading={runMutation.isPending && runMutation.variables === item.id}
+                          onClick={() => runMutation.mutate(item.id)}
+                        >
+                          Jalankan
+                        </Button>
+                      )}
                       {item.canDecide && (
                         <>
                           <Button

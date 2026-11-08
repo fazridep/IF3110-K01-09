@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/testutil"
+	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
 type level int

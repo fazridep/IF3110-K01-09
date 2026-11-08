@@ -16,7 +16,7 @@ import (
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/pgerr"
+	"github.com/if3110/tubes-db-platform/internal/platform/pgerr"
 )
 
 // --- Model ---

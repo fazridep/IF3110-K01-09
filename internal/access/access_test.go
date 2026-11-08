@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/testutil"
+	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
 func createUser(t *testing.T, db *pgxpool.Pool, username string, isAdmin bool) uuid.UUID {
@@ -330,5 +330,35 @@ func TestGroupAndDatabaseLeader(t *testing.T) {
 	leadGroups, err := s.LeaderGroupsForDatabase(ctx, u1, dbID)
 	if err != nil || len(leadGroups) != 1 || leadGroups[0] != g1 {
 		t.Fatalf("u1 harus leader untuk g1 di db prod: %v %v", leadGroups, err)
+	}
+}
+
+func TestViewableDatabases(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.DB(t)
+	store := NewStore(db)
+
+	dbA := createDatabase(t, db, "a")
+	createDatabase(t, db, "b")
+	member := createUser(t, db, "anggota", false)
+	outsider := createUser(t, db, "orang_luar", false)
+
+	// Dua group ke database A nggak boleh bikin hasilnya dobel.
+	for _, name := range []string{"g1", "g2"} {
+		g := createGroup(t, db, name)
+		addMember(t, db, g, member)
+		setGrant(t, db, g, dbA, "view_only")
+	}
+
+	got, err := store.ViewableDatabases(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != dbA {
+		t.Fatalf("mau cuma database A, dapat %v", got)
+	}
+	got, err = store.ViewableDatabases(ctx, outsider)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("user tanpa group harus kosong: %v %v", got, err)
 	}
 }

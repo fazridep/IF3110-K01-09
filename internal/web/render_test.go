@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
 )
 
 // Tombol logout cuma muncul kalau sudah login.

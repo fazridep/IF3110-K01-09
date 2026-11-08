@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useUser, useAuth } from "../auth/AuthContext";
+import { useUser, useAuth } from "../features/auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { initials } from "../lib/format";
 

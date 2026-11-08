@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/if3110/tubes-db-platform/internal/access"
-	"github.com/if3110/tubes-db-platform/internal/pgerr"
+	"github.com/if3110/tubes-db-platform/internal/platform/pgerr"
 )
 
 func (s *Service) Submit(ctx context.Context, userID, migrationID uuid.UUID, action Action) (*Request, error) {
@@ -535,4 +535,3 @@ func (s *Service) IsMigrationApproved(ctx context.Context, migrationID uuid.UUID
 	}
 	return ok, nil
 }
-

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
 )
 
 func newTestHandler(t *testing.T) (*Handler, *fakeClock) {

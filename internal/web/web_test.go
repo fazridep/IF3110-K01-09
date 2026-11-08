@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/testutil"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
 var testDist = fstest.MapFS{

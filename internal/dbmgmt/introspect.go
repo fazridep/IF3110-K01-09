@@ -74,14 +74,15 @@ type RowPage struct {
 	Pages   int
 }
 
-// Schemas mendaftar schema user di database target, tanpa schema sistem.
+// Schemas mendaftar schema user di database target, tanpa schema sistem dan
+// _dbplatform (catatan commit milik worker, lihat queue/evidence.go).
 func Schemas(ctx context.Context, db *pgxpool.Pool) ([]Schema, error) {
 	rows, err := db.Query(ctx, `
 		SELECT n.nspname, count(c.oid)
 		FROM pg_namespace n
 		LEFT JOIN pg_class c
 		       ON c.relnamespace = n.oid AND c.relkind IN ('r','v','m','p','f')
-		WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'
+		WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname NOT IN ('information_schema', '_dbplatform')
 		GROUP BY n.nspname
 		ORDER BY n.nspname`)
 	if err != nil {

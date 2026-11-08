@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
-import { AuthProvider } from "../../auth/AuthContext";
-import { RequireAuth } from "../../auth/RequireAuth";
+import { AuthProvider } from "../auth/AuthContext";
+import { RequireAuth } from "../auth/RequireAuth";
 import ApprovalsPage from "./ApprovalsPage";
 
 const json = (status: number, body: unknown) =>
@@ -153,6 +153,33 @@ describe("ApprovalsPage", () => {
     await user.click(screen.getByRole("button", { name: "Tolak Permintaan" }));
 
     expect(await screen.findByText("wajib diisi")).toBeInTheDocument();
+  });
+
+  it("request yang sudah disetujui bisa dijalankan dan membuka halaman job", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(200, { id: "u-1", username: "editor", isPlatformAdmin: false }))
+      .mockResolvedValueOnce(json(200, { items: [{ ...samplePending, status: "approved", canDecide: false }] }));
+    renderApprovals();
+    const user = userEvent.setup();
+    const run = await screen.findByRole("button", { name: "Jalankan" });
+
+    fetchMock.mockResolvedValueOnce(json(202, { jobId: "job-1", status: "queued", statusUrl: "/api/jobs/job-1" }));
+    await user.click(run);
+    await waitFor(() => expect(fetchMock.mock.calls[2][0]).toBe("/api/jobs"));
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ approvalId: "ap-1" });
+  });
+
+  it("menampilkan alasan kalau eksekusi ditolak server", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(200, { id: "u-1", username: "viewer", isPlatformAdmin: false }))
+      .mockResolvedValueOnce(json(200, { items: [{ ...samplePending, status: "approved", canDecide: false }] }));
+    renderApprovals();
+    const user = userEvent.setup();
+    const run = await screen.findByRole("button", { name: "Jalankan" });
+
+    fetchMock.mockResolvedValueOnce(problem(403, "urn:problem:forbidden", "Hanya user dengan akses View + Edit yang boleh melakukan ini."));
+    await user.click(run);
+    expect(await screen.findByText("Hanya user dengan akses View + Edit yang boleh melakukan ini.")).toBeInTheDocument();
   });
 });
 

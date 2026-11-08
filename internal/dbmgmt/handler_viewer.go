@@ -1,70 +1,124 @@
 package dbmgmt
 
 import (
-	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
 )
 
-// Halaman /databases: daftar database yang boleh dibuka user, schema, tabel,
-// dan isi tabel. Izin dicek per database lewat h.perms.
+// API /api/databases: daftar database yang boleh dibuka user, schema, tabel, dan
+// isi tabel. Host dan username koneksi sengaja nggak ikut, itu urusan admin.
 
-type listItem struct {
-	Connection Connection
-	Level      access.Level
+type databaseJSON struct {
+	ID       uuid.UUID    `json:"id"`
+	Name     string       `json:"name"`
+	Database string       `json:"database"`
+	Level    access.Level `json:"level"`
 }
 
-type databaseListPage struct {
-	Items []listItem
+type tableJSON struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Columns int    `json:"columns"`
 }
 
-type schemaTables struct {
-	Schema Schema
-	Tables []Table
+type schemaJSON struct {
+	Name   string      `json:"name"`
+	Tables []tableJSON `json:"tables"`
 }
 
-type databasePage struct {
-	Connection Connection
-	Level      access.Level
-	Schemas    []schemaTables
+type databaseDetailJSON struct {
+	databaseJSON
+	Schemas []schemaJSON `json:"schemas"`
 }
 
-type tablePage struct {
-	Connection Connection
-	Level      access.Level
-	Detail     TableDetail
-	Rows       RowPage
-	PrevPage   int
-	NextPage   int
-	BaseURL    string
+type columnJSON struct {
+	Name     string `json:"name"`
+	DataType string `json:"dataType"`
+	Nullable bool   `json:"nullable"`
+	Default  string `json:"default"`
 }
 
-func (h *Handler) showDatabases(w http.ResponseWriter, r *http.Request) {
+type constraintJSON struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Definition string `json:"definition"`
+}
+
+type indexJSON struct {
+	Name       string `json:"name"`
+	Unique     bool   `json:"unique"`
+	Primary    bool   `json:"primary"`
+	Definition string `json:"definition"`
+}
+
+type rowsJSON struct {
+	Columns []string    `json:"columns"`
+	Rows    [][]*string `json:"rows"`
+	Total   int64       `json:"total"`
+	Page    int         `json:"page"`
+	PerPage int         `json:"perPage"`
+	Pages   int         `json:"pages"`
+}
+
+type tableDetailJSON struct {
+	Database    databaseJSON     `json:"database"`
+	Schema      string           `json:"schema"`
+	Table       string           `json:"table"`
+	Columns     []columnJSON     `json:"columns"`
+	Constraints []constraintJSON `json:"constraints"`
+	Indexes     []indexJSON      `json:"indexes"`
+	Rows        rowsJSON         `json:"rows"`
+}
+
+func toDatabaseJSON(c Connection, level access.Level) databaseJSON {
+	return databaseJSON{ID: c.ID, Name: c.Name, Database: c.Database, Level: level}
+}
+
+func toRowsJSON(p RowPage) rowsJSON {
+	out := rowsJSON{
+		Columns: p.Columns, Rows: make([][]*string, 0, len(p.Rows)),
+		Total: p.Total, Page: p.Page, PerPage: p.PerPage, Pages: p.Pages,
+	}
+	if out.Columns == nil {
+		out.Columns = []string{}
+	}
+	for _, row := range p.Rows {
+		cells := make([]*string, len(row))
+		for i := range row {
+			if !row[i].Null {
+				cells[i] = &row[i].Value
+			}
+		}
+		out.Rows = append(out.Rows, cells)
+	}
+	return out
+}
+
+func (h *Handler) listDatabases(w http.ResponseWriter, r *http.Request) {
 	u := auth.CurrentUser(r.Context())
 	conns, err := h.store.List(r.Context())
 	if err != nil {
-		h.serverError(w, r, err)
+		httpx.ServerError(w, r, err)
 		return
 	}
 
-	items := make([]listItem, 0, len(conns))
+	items := make([]databaseJSON, 0, len(conns))
 	for _, c := range conns {
 		level, err := h.perms.EffectiveLevel(r.Context(), u.ID, c.ID)
 		if err != nil {
-			h.serverError(w, r, err)
+			httpx.ServerError(w, r, err)
 			return
 		}
-		if level == access.NoAccess {
-			continue
+		if level != access.NoAccess {
+			items = append(items, toDatabaseJSON(c, level))
 		}
-		items = append(items, listItem{Connection: c, Level: level})
 	}
-	h.view.Render(w, r, "dbmgmt/list", databaseListPage{Items: items})
+	httpx.JSON(w, http.StatusOK, httpx.NewList(items))
 }
 
 func (h *Handler) showDatabase(w http.ResponseWriter, r *http.Request) {
@@ -88,16 +142,20 @@ func (h *Handler) showDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := databasePage{Connection: c, Level: level}
+	out := databaseDetailJSON{databaseJSON: toDatabaseJSON(c, level), Schemas: make([]schemaJSON, 0, len(schemas))}
 	for _, s := range schemas {
 		tables, err := Tables(r.Context(), pool, s.Name)
 		if err != nil {
 			h.connectError(w, r, c, err)
 			return
 		}
-		page.Schemas = append(page.Schemas, schemaTables{Schema: s, Tables: tables})
+		js := schemaJSON{Name: s.Name, Tables: make([]tableJSON, 0, len(tables))}
+		for _, t := range tables {
+			js.Tables = append(js.Tables, tableJSON(t))
+		}
+		out.Schemas = append(out.Schemas, js)
 	}
-	h.view.Render(w, r, "dbmgmt/database", page)
+	httpx.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) showTable(w http.ResponseWriter, r *http.Request) {
@@ -122,35 +180,45 @@ func (h *Handler) showTable(w http.ResponseWriter, r *http.Request) {
 		h.connectError(w, r, c, err)
 		return
 	}
-	rows, err := FetchRows(r.Context(), pool, schema, table, intParam(r, "page", 1), intParam(r, "per", DefaultPerPage))
+	rows, err := FetchRows(r.Context(), pool, schema, table, intParam(r, "page", 1), intParam(r, "perPage", DefaultPerPage))
 	if err != nil {
 		h.connectError(w, r, c, err)
 		return
 	}
 
-	page := tablePage{
-		Connection: c,
-		Level:      level,
-		Detail:     detail,
-		Rows:       rows,
-		BaseURL:    fmt.Sprintf("/databases/%s/tables/%s/%s", id, url.PathEscape(schema), url.PathEscape(table)),
+	out := tableDetailJSON{
+		Database:    toDatabaseJSON(c, level),
+		Schema:      detail.Schema,
+		Table:       detail.Table,
+		Columns:     make([]columnJSON, 0, len(detail.Columns)),
+		Constraints: make([]constraintJSON, 0, len(detail.Constraints)),
+		Indexes:     make([]indexJSON, 0, len(detail.Indexes)),
+		Rows:        toRowsJSON(rows),
 	}
-	page.PrevPage = rows.Page - 1
-	page.NextPage = rows.Page + 1
-	h.view.Render(w, r, "dbmgmt/table", page)
+	for _, col := range detail.Columns {
+		out.Columns = append(out.Columns, columnJSON(col))
+	}
+	for _, con := range detail.Constraints {
+		out.Constraints = append(out.Constraints, constraintJSON(con))
+	}
+	for _, idx := range detail.Indexes {
+		out.Indexes = append(out.Indexes, indexJSON(idx))
+	}
+	httpx.JSON(w, http.StatusOK, out)
 }
 
-// connectionWithAccess ngambil koneksi sekalian ngecek user punya akses.
-// Hasil ok=false berarti response sudah dikirim (403 atau 404).
+// connectionWithAccess ngambil koneksi sekalian ngecek user punya akses. Nggak
+// punya akses dibalas 404 biar keberadaan database nggak bocor. Hasil ok=false
+// berarti response sudah dikirim.
 func (h *Handler) connectionWithAccess(w http.ResponseWriter, r *http.Request, id uuid.UUID) (Connection, access.Level, bool) {
 	u := auth.CurrentUser(r.Context())
 	level, err := h.perms.EffectiveLevel(r.Context(), u.ID, id)
 	if err != nil {
-		h.serverError(w, r, err)
+		httpx.ServerError(w, r, err)
 		return Connection{}, access.NoAccess, false
 	}
 	if level == access.NoAccess {
-		h.fail(w, r, http.StatusForbidden, "Kamu nggak punya akses ke database ini.")
+		httpx.NotFound(w, r, "Datanya nggak ketemu.")
 		return Connection{}, access.NoAccess, false
 	}
 	c, err := h.store.Get(r.Context(), id)

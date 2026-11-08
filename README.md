@@ -24,6 +24,7 @@ make db-up        # postgres metadata (5435) dan target (5436)
 make migrate      # bikin tabel platform
 make seed         # bikin akun Platform Admin pertama
 make run          # http://localhost:8080
+make worker       # terminal lain, yang menjalankan job migration
 ```
 
 Kalau port 8080 sudah dipakai aplikasi lain, ganti `APP_PORT` di `.env`.
@@ -92,25 +93,44 @@ make test
 Kalau cuma mau unit test tanpa database, jalankan `go test ./...`. Integration
 test otomatis di-skip kalau `TEST_DATABASE_URL` kosong.
 
+## Data uji migration besar
+
+`make seed-large` membuat tabel `orders_large` di database target lalu mengukur
+satu `UPDATE` seluruh row tanpa batching (`ROWS=5000000 make seed-large` buat
+mengganti jumlahnya). Hasil 8 November 2026, Postgres 18 di Docker, laptop
+pengembang:
+
+| Row | Isi data | `UPDATE` seluruh row tanpa batching |
+|-----|----------|-------------------------------------|
+| 2.000.000 | 3,4 detik | 6,7 detik |
+
+Dataset yang sama dipakai buat menguji migration per batch.
+
 ## Struktur
 
 ```
-cmd/server/          entry point: migrate, seed-admin (main.go), wiring server (server.go)
-internal/auth/       login, session, CSRF
-internal/access/     aturan izin
-internal/admin/      halaman user, group, dan grant
-internal/dbmgmt/     koneksi database target dan viewer
-internal/migration/  migration database target
-internal/store/      koneksi dan runner migration database metadata
-internal/web/        renderer template dan router
-internal/httpx/      kontrak Renderer, halaman error, parsing id (dipakai semua handler)
-internal/pgerr/      pemetaan kode error PostgreSQL
-migrations/metadata/ SQL tabel platform
-web/templates/       template HTML per fitur, shared/ buat halaman bersama
+cmd/server/            entry point API: migrate, seed-admin, wiring server
+cmd/worker/            entry point worker: menjalankan job migration dari queue
+frontend/              SPA React + Vite
+internal/              kode backend
+  auth/                login, session, CSRF
+  access/              aturan izin
+  admin/               user, group, leader, dan grant
+  approval/            persetujuan leader group
+  dbmgmt/              koneksi database target dan viewer
+  migration/           migration database target
+  queue/               job queue, worker, lock per database, retry, pemulihan
+  web/                 router, penyaji SPA, template yang belum pindah ke SPA
+  platform/            pondasi tanpa logika fitur, nggak boleh import fitur
+    config/ httpx/ obs/ pgerr/ store/ testutil/
+migrations/metadata/   SQL tabel platform
+scripts/               data uji migration besar
+docs/                  keputusan desain, API, frontend, observability, progress
 ```
 
 ## Dokumentasi
 
-- [Progress dan pembagian tugas](PROGRESS.md)
+- [Progress dan pembagian tugas](docs/PROGRESS.md)
+- [Konvensi dan daftar API](docs/api.md)
 - [Keputusan desain](docs/DECISION.md)
 - [Aturan migration metadata](migrations/README.md)

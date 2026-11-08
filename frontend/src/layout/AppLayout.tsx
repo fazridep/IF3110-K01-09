@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
-import { useUser } from "../auth/AuthContext";
+import { useUser } from "../features/auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { Skeleton } from "../components/Skeleton";
 import { navGroups } from "./nav";

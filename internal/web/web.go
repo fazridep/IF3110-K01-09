@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/obs"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 )
 
 type Options struct {

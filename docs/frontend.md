@@ -97,7 +97,7 @@ Langkahnya:
 3. Daftarkan route di `src/app/router.tsx`, lalu ubah `ready: true` di
    `src/layout/nav.ts`.
 4. Hapus route Go template lama fitur itu dari `RegisterPages` di
-   `cmd/server/server.go`, plus template-nya di `web/templates/`.
+   `cmd/server/server.go`, plus template-nya di `internal/web/templates/`.
 
 Contoh route:
 

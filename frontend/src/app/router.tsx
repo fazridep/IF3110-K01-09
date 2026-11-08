@@ -1,5 +1,5 @@
 import { createBrowserRouter, Outlet, type RouteObject } from "react-router";
-import { RequireAdmin, RequireAuth } from "../auth/RequireAuth";
+import { RequireAdmin, RequireAuth } from "../features/auth/RequireAuth";
 import { AppLayout } from "../layout/AppLayout";
 import { migrationsNav, navGroups, type NavItem } from "../layout/nav";
 import ComingSoon from "../features/placeholder/ComingSoon";
@@ -19,7 +19,7 @@ export const routes: RouteObject[] = [
   {
     path: "/login",
     errorElement: <RouteError />,
-    lazy: { Component: async () => (await import("../auth/LoginPage")).default },
+    lazy: { Component: async () => (await import("../features/auth/LoginPage")).default },
   },
   {
     path: "/",
@@ -32,6 +32,11 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, lazy: { Component: async () => (await import("../features/home/HomePage")).default } },
       { path: "approvals", lazy: { Component: async () => (await import("../features/approvals/ApprovalsPage")).default } },
+      { path: "databases", lazy: { Component: async () => (await import("../features/databases/DatabasesPage")).default } },
+      { path: "databases/:dbId", lazy: { Component: async () => (await import("../features/databases/DatabaseDetailPage")).default } },
+      { path: "databases/:dbId/tables/:schema/:table", lazy: { Component: async () => (await import("../features/databases/TablePage")).default } },
+      { path: "jobs", lazy: { Component: async () => (await import("../features/jobs/JobsPage")).default } },
+      { path: "jobs/:jobId", lazy: { Component: async () => (await import("../features/jobs/JobDetailPage")).default } },
       {
         element: (
           <RequireAdmin>
@@ -39,6 +44,7 @@ export const routes: RouteObject[] = [
           </RequireAdmin>
         ),
         children: [
+          { path: "admin/databases", lazy: { Component: async () => (await import("../features/connections/ConnectionsPage")).default } },
           { path: "admin/users", lazy: { Component: async () => (await import("../features/admin/UsersPage")).default } },
           { path: "admin/groups", lazy: { Component: async () => (await import("../features/admin/GroupsPage")).default } },
           { path: "admin/groups/:groupId", lazy: { Component: async () => (await import("../features/admin/GroupDetailPage")).default } },
