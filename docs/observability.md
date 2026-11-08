@@ -1,7 +1,7 @@
 # Logging dan Tracing
 
 Log JSON (`log/slog`) ke stdout, span OpenTelemetry ke stderr. Kode di
-`internal/obs`.
+`internal/platform/obs`.
 
 | Env | Default |
 |-----|---------|
@@ -58,3 +58,22 @@ Password, token, sid, cookie, dan DSN otomatis jadi `[REDACTED]`.
 ```bash
 grep '007206c5f17f273103fd96da77ab37a2' logs.jsonl spans.jsonl
 ```
+
+## Trace job migration
+
+Job membawa trace context dari request yang memasukkannya, disimpan di kolom
+`trace_context`. Jadi satu trace menyambung dari API sampai SQL di database target:
+
+```
+POST /api/jobs -> queue.enqueue -> worker.job -> lock.acquire
+                                              -> db.begin, db.query, db.commit
+```
+
+Event worker: `lock.acquired`, `lock.released`, `lock.expired`, `lock.lost`,
+`job.enqueued`, `job.claimed` (ada `queue_wait_ms`), `job.attempt.start`,
+`job.attempt.end` (ada `duration_ms`), `job.retry`, `job.verified`,
+`job.progress`, `job.finished`.
+
+Semua SQL ke database target masuk log level info (`sql.start`, `sql.end`).
+Query metadata di server level debug, dan polling worker nggak dicatat supaya
+log nggak penuh.

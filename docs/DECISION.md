@@ -264,3 +264,78 @@ Akibat: nambah fitur baru cukup implement `httpx.Renderer` di test palsu dan
 pakai `httpx.Error`. Aturan izin benar-benar cuma di `access` (ADR-001).
 Konsekuensinya `dbmgmt` sekarang ikut ke-build ulang kalau `access` berubah,
 tapi kontraknya cuma satu method.
+
+## ADR-013 Queue migration di PostgreSQL, lock berupa lease
+
+Status: diterima, 8 Nov
+
+Konteks: spesifikasi M2 minta semua eksekusi lewat queue dan worker. Satu
+database cuma boleh menjalankan satu migration, job harus selamat dari restart,
+pesan duplikat nggak boleh bikin double commit, dan kalau hasil commit belum
+pasti, migration berikutnya ditahan.
+
+Keputusan:
+- Queue berupa tabel `migration_jobs`, diambil pakai `FOR UPDATE SKIP LOCKED`.
+  Nggak butuh broker baru, dan masuk queue bisa satu transaction dengan data lain.
+- Satu approval jadi satu job (`UNIQUE (approval_id)`). Eksekusi dipicu eksplisit
+  lewat `POST /api/jobs`, bukan otomatis saat approval terakhir masuk, supaya API
+  bisa mengembalikan job ID dan bisa aman dipanggil ulang. `SetOnApproved` di
+  package approval nggak dipakai.
+- Lock berupa lease di `database_locks`, diambil satu transaction dengan klaim
+  job. Worker memperpanjang tiap sepertiga `WORKER_LEASE_TTL`. Tiap klaim punya
+  `lease_token`, jadi worker yang lease-nya sudah diambil alih nggak bisa nulis
+  hasil lagi, dan eksekusinya dibatalkan.
+- FIFO per database: job dilewati kalau ada job lebih lama di database yang sama
+  yang masih `queued`, `running`, `uncertain`, atau `partial`. Ini yang menahan
+  migration berikutnya.
+- Bukti commit ditulis di database target (`_dbplatform.job_commits`), satu
+  transaction dengan SQL migration. Primary key `job_id` membuat commit kedua
+  gagal, jadi duplikat nggak bisa double commit. Schema ini disembunyikan dari viewer.
+- Retry cuma buat kegagalan sementara (`IsTransient`), dibatasi `WORKER_MAX_ATTEMPTS`,
+  dengan jeda dua kali lipat plus jitter. Error SQL biasa langsung `failed`.
+
+Pemulihan lock waktu worker mati: lease habis sendiri paling lama `WORKER_LEASE_TTL`
+kemudian. Worker lain menandai job-nya `uncertain` dan melepas lock. Sebelum
+mengulang, `Executor.Verify` memeriksa bukti commit: kalau ada, job langsung
+`success`. Kalau belum, SQL dijalankan ulang. Kalau target nggak bisa dihubungi,
+pemeriksaan diulang sampai batas, lalu job tetap `uncertain` dan menahan database
+sampai ada yang menekan Periksa ulang (`POST /api/jobs/{id}/recheck`).
+
+Kontrak buat package migration, `queue.Executor`:
+- `Execute` menjalankan SQL dan wajib memanggil `queue.RecordCommit` di transaction
+  yang sama. Balikan `queue.Partial(err)` kalau sebagian batch sudah committed,
+  `queue.Uncertain(err)` kalau COMMIT putus, `queue.Transient(err)` kalau aman diulang.
+- `Verify` mengecek bukti, cukup `queue.CommitRecorded`.
+- `Finalize` memperbarui data milik migration waktu job selesai, dan harus aman
+  dipanggil ulang.
+- Progres batch dilaporkan lewat `Reporter.Report`.
+- Melanjutkan job partial: `POST /api/jobs` dengan approval berjenis `batch` dan
+  `resumeJobId`. Job lama jadi `superseded`, job baru punya `ResumesJobID`.
+
+Akibat: `migration.Executor` sekarang baru mendukung `apply` dalam satu transaction.
+`rollback`, `forward`, dan `batch` ditolak sampai model up/down dan riwayat
+eksekusi ada. Eksekusi langsung `POST /migrations/{id}/execute` dari M1 juga masih
+ada dan melewati approval, harus dihapus waktu halaman migration pindah ke SPA.
+
+## ADR-014 Struktur folder: fitur dan platform
+
+Status: diterima, 8 Nov
+
+Konteks: `internal/` sudah 15 package sejajar, campuran fitur dan pondasi.
+`web/` di root cuma berisi template yang dipakai `internal/web`, dan `PROGRESS.md`
+terpisah dari dokumen lain.
+
+Keputusan:
+- Pondasi tanpa logika fitur pindah ke `internal/platform/`: `config`, `httpx`,
+  `obs`, `pgerr`, `store`, `testutil`. Aturannya, package di situ nggak boleh
+  import package fitur.
+- Package fitur tetap di `internal/<fitur>`.
+- `internal/web` tetap di luar `platform`, karena menyusun route dan bergantung ke
+  `auth`.
+- Template pindah ke `internal/web/templates`, folder `web/` di root dihapus.
+- `PROGRESS.md` pindah ke `docs/`, dan `frontend/src/auth` jadi `src/features/auth`.
+
+Akibat: semua import `internal/{config,httpx,obs,pgerr,store,testutil}` berubah.
+Branch yang masih jalan cukup mengganti path import itu setelah rebase. Path lama
+di ADR sebelumnya sengaja dibiarkan sebagai catatan waktu keputusan dibuat.
+

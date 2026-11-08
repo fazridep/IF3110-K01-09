@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { useUser } from "../../auth/AuthContext";
+import { useUser } from "../auth/AuthContext";
 import { PageHeader } from "../../components/PageHeader";
 import { navGroups } from "../../layout/nav";
 

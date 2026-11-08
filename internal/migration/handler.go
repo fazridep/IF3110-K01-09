@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
 )
 
 type Handler struct {

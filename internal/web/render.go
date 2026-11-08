@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"embed"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -10,10 +11,12 @@ import (
 	"strings"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	assets "github.com/if3110/tubes-db-platform/web"
 )
 
-// Renderer menggabungkan tiap halaman di web/templates/<fitur>/*.html dengan
+//go:embed templates
+var templates embed.FS
+
+// Renderer menggabungkan tiap halaman di templates/<fitur>/*.html dengan
 // layout. Nama halaman ditulis "<fitur>/<file>", misalnya "admin/users".
 type Renderer struct {
 	pages map[string]*template.Template
@@ -28,11 +31,11 @@ type view struct {
 }
 
 func NewRenderer() (*Renderer, error) {
-	layout, err := template.ParseFS(assets.Templates, "templates/layout/*.html")
+	layout, err := template.ParseFS(templates, "templates/layout/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse layout: %w", err)
 	}
-	files, err := fs.Glob(assets.Templates, "templates/*/*.html")
+	files, err := fs.Glob(templates, "templates/*/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +49,7 @@ func NewRenderer() (*Renderer, error) {
 		if err != nil {
 			return nil, err
 		}
-		page, err := base.ParseFS(assets.Templates, file)
+		page, err := base.ParseFS(templates, file)
 		if err != nil {
 			return nil, fmt.Errorf("web: parse %s: %w", file, err)
 		}

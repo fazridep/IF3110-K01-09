@@ -16,8 +16,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/config"
-	"github.com/if3110/tubes-db-platform/internal/store"
+	"github.com/if3110/tubes-db-platform/internal/platform/config"
+	"github.com/if3110/tubes-db-platform/internal/platform/store"
 	"github.com/if3110/tubes-db-platform/migrations"
 )
 
@@ -82,8 +82,8 @@ func runSeedAdmin(cfg *config.Config) {
 	log.Printf("seed-admin: admin %s dibuat (id %s)", username, id)
 }
 
-func mustOpenDB(url string) *pgxpool.Pool {
-	db, err := store.Open(context.Background(), url)
+func mustOpenDB(url string, configure ...func(*pgxpool.Config)) *pgxpool.Pool {
+	db, err := store.Open(context.Background(), url, configure...)
 	if err != nil {
 		log.Fatalf("%v\npastikan database jalan (make db-up) dan METADATA_DB_URL benar", err)
 	}

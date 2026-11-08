@@ -2,7 +2,7 @@
 
 Semua endpoint JSON ada di bawah `/api/`. Frontend SPA cuma bicara ke backend
 lewat sini. Konvensinya mengikuti materi REST API Design (06). Helper Go-nya
-ada di `internal/httpx/json.go`, client-nya di `frontend/src/lib/api.ts`.
+ada di `internal/platform/httpx/json.go`, client-nya di `frontend/src/lib/api.ts`.
 
 ## Ringkasan
 
@@ -139,6 +139,40 @@ Pesan `401` untuk username tidak ada dan password salah sengaja sama.
 Session tetap mengikuti ADR-003 (idle 30 menit, absolute 8 jam, rotasi 15
 menit + grace 30 detik). Token hasil rotasi dikirim lewat `Set-Cookie` di
 response API mana pun, browser yang menyimpannya.
+
+## Endpoint database (bagian 3)
+
+Semua perlu login. Yang nggak punya akses ke database itu dapat `404`.
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/api/databases` | `{"items":[{id,name,database,level}]}`, cuma yang boleh dibuka user |
+| `GET` | `/api/databases/{id}` | database + `schemas[].tables[]`. `502` kalau target mati |
+| `GET` | `/api/databases/{id}/tables/{schema}/{table}?page=&perPage=` | `columns`, `constraints`, `indexes`, `rows`. Sel NULL jadi `null` |
+
+Khusus Platform Admin (lainnya `403`). Password nggak pernah dikirim balik.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `GET` | `/api/admin/connections` | - | daftar koneksi |
+| `POST` | `/api/admin/connections` | `{name,host,port,database,username,password,sslmode}` | `201`. `400` per field, `409` nama kembar |
+| `GET` | `/api/admin/connections/{id}` | - | koneksi |
+| `PUT` | `/api/admin/connections/{id}` | sama, password kosong berarti tetap | koneksi |
+| `DELETE` | `/api/admin/connections/{id}` | - | `204`. `409` `connection-in-use` kalau punya riwayat migration |
+| `POST` | `/api/admin/connections/test` | sama, plus `id` opsional buat memakai password tersimpan | `200 {ok,message}` |
+| `POST` | `/api/admin/connections/{id}/test` | - | `200 {ok,message}` |
+
+## Endpoint job (bagian 3)
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `POST` | `/api/jobs` | `{approvalId, resumeJobId?}` | `202 {jobId,status,statusUrl}`. Kirim ulang approval yang sama dapat job yang sama. `403` kalau bukan View + Edit, `404` kalau nggak boleh lihat, `409` `approval-required` / `invalid-resume` |
+| `GET` | `/api/jobs?databaseId=&status=&limit=&cursor=` | - | job di database yang boleh dilihat, terbaru dulu, plus `nextCursor` |
+| `GET` | `/api/jobs/{id}` | - | job. `404` kalau nggak boleh lihat |
+| `POST` | `/api/jobs/{id}/recheck` | - | periksa ulang job `uncertain`. `409` kalau statusnya lain |
+
+Status job: `queued`, `running`, `success`, `failed`, `partial`, `uncertain`,
+`superseded`. `202` cuma berarti masuk queue, hasilnya dipantau lewat `statusUrl`.
 
 ## Contoh pakai curl
 

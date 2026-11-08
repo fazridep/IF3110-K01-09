@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/obs"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 )
 
 type Handler struct {
@@ -303,4 +303,3 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, toApprovalJSON(*req))
 	}
 }
-

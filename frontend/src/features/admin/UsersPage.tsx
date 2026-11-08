@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useUser } from "../../auth/AuthContext";
+import { useUser } from "../auth/AuthContext";
 import { api, ApiError, type List } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { Button } from "../../components/Button";

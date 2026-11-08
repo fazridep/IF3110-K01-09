@@ -8,7 +8,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";
-import { AuthProvider } from "./auth/AuthContext";
+import { AuthProvider } from "./features/auth/AuthContext";
 import { router } from "./app/router";
 import { ApiError } from "./lib/api";
 import { applyTheme, storedTheme } from "./lib/theme";

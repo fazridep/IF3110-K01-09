@@ -118,4 +118,3 @@ func NewService(db *pgxpool.Pool, perms Permissions) *Service {
 func (s *Service) SetOnApproved(fn OnApprovedFunc) {
 	s.onApproved = fn
 }
-

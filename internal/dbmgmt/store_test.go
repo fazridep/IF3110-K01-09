@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/if3110/tubes-db-platform/internal/testutil"
+	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
 func newTestStore(t *testing.T) *Store {

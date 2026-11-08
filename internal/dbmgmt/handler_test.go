@@ -2,10 +2,9 @@ package dbmgmt
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,123 +13,103 @@ import (
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/web"
 )
 
-type fakeView struct {
-	name string
-	data any
-}
-
-func (f *fakeView) Render(w http.ResponseWriter, r *http.Request, name string, data any) {
-	f.RenderStatus(w, r, http.StatusOK, name, data)
-}
-
-func (f *fakeView) RenderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
-	f.name = name
-	f.data = data
-	w.WriteHeader(status)
-}
-
-// levelFunc memenuhi Permissions, jadi test bisa ngatur level akses tanpa
-// database access.
 type levelFunc func(ctx context.Context, userID, dbID uuid.UUID) (access.Level, error)
 
 func (f levelFunc) EffectiveLevel(ctx context.Context, userID, dbID uuid.UUID) (access.Level, error) {
 	return f(ctx, userID, dbID)
 }
 
-// newTestHandler bikin handler dengan level akses palsu. nil berarti user
-// nggak punya akses ke database mana pun. Status admin dibaca dari user di
-// context, lihat user dan userAs.
-func newTestHandler(t *testing.T, level levelFunc) (*Handler, *fakeView, *Store) {
-	t.Helper()
-	store := newTestStore(t)
-	view := &fakeView{}
-	if level == nil {
-		level = func(context.Context, uuid.UUID, uuid.UUID) (access.Level, error) { return access.NoAccess, nil }
-	}
-	return NewHandler(store, NewManager(store), view, level), view, store
+func allow(level access.Level) levelFunc {
+	return func(context.Context, uuid.UUID, uuid.UUID) (access.Level, error) { return level, nil }
 }
 
-// user mengembalikan Platform Admin.
-func user() *auth.User {
-	return userAs(true)
+// newTestMux bikin route dengan level akses palsu. nil berarti user nggak punya
+// akses ke database mana pun. Status admin dibaca dari user di context.
+func newTestMux(t *testing.T, level levelFunc) (*http.ServeMux, *Handler, *Store) {
+	t.Helper()
+	store := newTestStore(t)
+	if level == nil {
+		level = allow(access.NoAccess)
+	}
+	h := NewHandler(store, NewManager(store), level)
+	t.Cleanup(h.pools.Close)
+	mux := http.NewServeMux()
+	h.RegisterAPIRoutes(mux)
+	return mux, h, store
 }
+
+func admin() *auth.User { return userAs(true) }
 
 func userAs(isAdmin bool) *auth.User {
 	return &auth.User{ID: uuid.New(), Username: "fazri", IsPlatformAdmin: isAdmin}
 }
 
-func request(method, target, body string, u *auth.User) *http.Request {
+func serve(mux *http.ServeMux, method, target string, body any, u *auth.User) *httptest.ResponseRecorder {
 	var r *http.Request
-	if body == "" {
+	if body == nil {
 		r = httptest.NewRequest(method, target, nil)
 	} else {
-		r = httptest.NewRequest(method, target, strings.NewReader(body))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		raw, _ := json.Marshal(body)
+		r = httptest.NewRequest(method, target, strings.NewReader(string(raw)))
+		r.Header.Set("Content-Type", "application/json")
 	}
 	if u != nil {
 		r = r.WithContext(auth.WithUser(r.Context(), u))
 	}
-	return r
-}
-
-func serve(mux *http.ServeMux, r *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, r)
 	return rec
 }
 
-func TestAdminButuhPlatformAdmin(t *testing.T) {
-	h, view, _ := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := serve(mux, request("GET", "/admin/databases", "", userAs(false)))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("mau 403, dapat %d", rec.Code)
+func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatalf("response bukan JSON: %v\n%s", err, rec.Body.String())
 	}
-	if view.name != httpx.ErrorTemplate {
-		t.Fatalf("mau halaman error, dapat %q", view.name)
-	}
+	return v
 }
 
-func TestAdminTanpaLogin(t *testing.T) {
-	h, _, _ := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+func problemOf(t *testing.T, rec *httptest.ResponseRecorder) (string, string, []map[string]string) {
+	t.Helper()
+	p := decode[struct {
+		Type   string              `json:"type"`
+		Detail string              `json:"detail"`
+		Errors []map[string]string `json:"errors"`
+	}](t, rec)
+	return p.Type, p.Detail, p.Errors
+}
 
-	// Di server asli auth.RequireLogin sudah redirect duluan. Kalau handler
-	// dipanggil tanpa user, guard admin tetap harus menolak.
-	rec := serve(mux, request("GET", "/admin/databases", "", nil))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("mau 403, dapat %d", rec.Code)
+func bodyOf(in Input) connectionBody { return connectionBody(in) }
+
+func TestAdminButuhPlatformAdmin(t *testing.T) {
+	mux, _, _ := newTestMux(t, nil)
+	for _, tc := range []struct {
+		name string
+		user *auth.User
+	}{{"user biasa", userAs(false)}, {"tanpa user", nil}} {
+		rec := serve(mux, "GET", "/api/admin/connections", nil, tc.user)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: mau 403, dapat %d", tc.name, rec.Code)
+		}
 	}
 }
 
 func TestAdminBuatLaluLihatDetail(t *testing.T) {
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+	mux, _, store := newTestMux(t, nil)
 
-	form := url.Values{
-		"name":     {"db-demo"},
-		"host":     {"localhost"},
-		"port":     {"5432"},
-		"db_name":  {"demo"},
-		"username": {"app"},
-		"password": {"rahasia"},
-		"sslmode":  {"prefer"},
-	}
-	rec := serve(mux, request("POST", "/admin/databases", form.Encode(), user()))
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("mau 303, dapat %d", rec.Code)
+	rec := serve(mux, "POST", "/api/admin/connections", bodyOf(sampleInput("db-demo")), admin())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mau 201, dapat %d: %s", rec.Code, rec.Body.String())
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/admin/databases/") {
-		t.Fatalf("redirect aneh: %q", loc)
+	if !strings.HasPrefix(loc, "/api/admin/connections/") {
+		t.Fatalf("Location aneh: %q", loc)
+	}
+	if strings.Contains(rec.Body.String(), "rahasia-sekali") || strings.Contains(rec.Body.String(), "password") {
+		t.Fatalf("password nggak boleh ikut di response: %s", rec.Body.String())
 	}
 
 	conns, err := store.List(context.Background())
@@ -138,147 +117,106 @@ func TestAdminBuatLaluLihatDetail(t *testing.T) {
 		t.Fatalf("koneksi nggak tersimpan: %+v %v", conns, err)
 	}
 
-	rec = serve(mux, request("GET", strings.Split(loc, "?")[0], "", user()))
+	rec = serve(mux, "GET", loc, nil, admin())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("detail mau 200, dapat %d", rec.Code)
 	}
-	if view.name != "dbmgmt/admin_detail" {
-		t.Fatalf("mau admin_detail, dapat %q", view.name)
-	}
-	page := view.data.(adminDetailPage)
-	if page.Connection.Name != "db-demo" {
-		t.Fatalf("halaman nampilin koneksi yang salah: %+v", page.Connection)
+	if c := decode[connectionJSON](t, rec); c.Name != "db-demo" || c.Host != "db.internal" {
+		t.Fatalf("detail salah: %+v", c)
 	}
 }
 
-func TestAdminValidasiGagal(t *testing.T) {
-	h, view, _ := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+func TestAdminValidasiGagalTunjukKolom(t *testing.T) {
+	mux, _, _ := newTestMux(t, nil)
 
-	form := url.Values{"name": {"tanpa-host"}, "db_name": {"x"}, "username": {"u"}}
-	rec := serve(mux, request("POST", "/admin/databases", form.Encode(), user()))
+	rec := serve(mux, "POST", "/api/admin/connections", connectionBody{Name: "tanpa-host", Database: "x", Username: "u", Password: "p"}, admin())
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("mau 400, dapat %d", rec.Code)
 	}
-	if view.name != "dbmgmt/admin_form" {
-		t.Fatalf("mau balik ke form, dapat %q", view.name)
-	}
-	if page := view.data.(adminFormPage); page.Error == "" {
-		t.Fatal("pesan error harusnya diisi")
+	if _, _, errs := problemOf(t, rec); len(errs) != 1 || errs[0]["field"] != "host" {
+		t.Fatalf("mau error di kolom host, dapat %+v", errs)
 	}
 }
 
-func TestDaftarDatabaseDisaringAkses(t *testing.T) {
+func TestAdminBuatTanpaPasswordDitolak(t *testing.T) {
+	mux, _, store := newTestMux(t, nil)
+
+	in := sampleInput("db-demo")
+	in.Password = ""
+	rec := serve(mux, "POST", "/api/admin/connections", bodyOf(in), admin())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("mau 400, dapat %d", rec.Code)
+	}
+	if _, _, errs := problemOf(t, rec); len(errs) != 1 || errs[0]["field"] != "password" {
+		t.Fatalf("mau error di kolom password, dapat %+v", errs)
+	}
+	if conns, _ := store.List(context.Background()); len(conns) != 0 {
+		t.Fatalf("koneksi nggak boleh kesimpan: %+v", conns)
+	}
+}
+
+func TestAdminNamaKembar(t *testing.T) {
+	mux, _, store := newTestMux(t, nil)
+	if _, err := store.Create(context.Background(), sampleInput("kembar")); err != nil {
+		t.Fatal(err)
+	}
+	rec := serve(mux, "POST", "/api/admin/connections", bodyOf(sampleInput("kembar")), admin())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("mau 409, dapat %d", rec.Code)
+	}
+	if _, _, errs := problemOf(t, rec); len(errs) != 1 || errs[0]["field"] != "name" {
+		t.Fatalf("mau error di kolom name, dapat %+v", errs)
+	}
+}
+
+func TestAdminUbahTanpaPasswordPakaiYangLama(t *testing.T) {
 	ctx := context.Background()
-	var allowed uuid.UUID
-
-	// Level resolver palsu: cuma koneksi pertama yang boleh.
-	h, view, store := newTestHandler(t, func(_ context.Context, _, dbID uuid.UUID) (access.Level, error) {
-		if dbID == allowed {
-			return access.ViewOnly, nil
-		}
-		return access.NoAccess, nil
-	})
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	first, err := store.Create(ctx, sampleInput("boleh"))
+	mux, _, store := newTestMux(t, nil)
+	id, err := store.Create(ctx, sampleInput("lama"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed = first
-	if _, err := store.Create(ctx, sampleInput("nggak-boleh")); err != nil {
-		t.Fatal(err)
-	}
 
-	rec := serve(mux, request("GET", "/databases", "", user()))
+	in := sampleInput("baru")
+	in.Password = ""
+	rec := serve(mux, "PUT", "/api/admin/connections/"+id.String(), bodyOf(in), admin())
 	if rec.Code != http.StatusOK {
-		t.Fatalf("mau 200, dapat %d", rec.Code)
+		t.Fatalf("mau 200, dapat %d: %s", rec.Code, rec.Body.String())
 	}
-	if view.name != "dbmgmt/list" {
-		t.Fatalf("mau dbmgmt/list, dapat %q", view.name)
-	}
-	page := view.data.(databaseListPage)
-	if len(page.Items) != 1 || page.Items[0].Connection.Name != "boleh" {
-		t.Fatalf("harusnya cuma 1 database: %+v", page.Items)
-	}
-	if page.Items[0].Level != access.ViewOnly {
-		t.Fatalf("level salah: %q", page.Items[0].Level)
-	}
-}
-
-func TestBukaDatabaseTanpaAkses(t *testing.T) {
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	id, err := store.Create(context.Background(), sampleInput("rahasia"))
+	c, password, err := store.credentials(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	rec := serve(mux, request("GET", "/databases/"+id.String(), "", user()))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("mau 403, dapat %d", rec.Code)
+	if c.Name != "baru" || password != "rahasia-sekali" {
+		t.Fatalf("mau nama baru dan password lama, dapat %q %q", c.Name, password)
 	}
-	if view.name != httpx.ErrorTemplate {
-		t.Fatalf("mau halaman error, dapat %q", view.name)
-	}
-}
 
-func TestIDBukanUUID(t *testing.T) {
-	h, _, _ := newTestHandler(t, func(context.Context, uuid.UUID, uuid.UUID) (access.Level, error) {
-		return access.ViewEdit, nil
-	})
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := serve(mux, request("GET", "/databases/bukan-uuid", "", user()))
+	rec = serve(mux, "PUT", "/api/admin/connections/"+uuid.NewString(), bodyOf(in), admin())
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("mau 404, dapat %d", rec.Code)
+		t.Fatalf("koneksi nggak ada: mau 404, dapat %d", rec.Code)
 	}
 }
 
-func TestAdminTesFormEditPakaiPasswordTersimpan(t *testing.T) {
-	in := targetInput(t)
-	if in.Password == "" {
-		t.Skip("database test tanpa password")
-	}
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+func TestAdminHapus(t *testing.T) {
+	ctx := context.Background()
+	mux, _, store := newTestMux(t, nil)
 
-	id, err := store.Create(context.Background(), in)
+	id, err := store.Create(ctx, sampleInput("db-hapus"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	form := url.Values{
-		"is_edit":  {"1"},
-		"id":       {id.String()},
-		"name":     {in.Name},
-		"host":     {in.Host},
-		"port":     {strconv.Itoa(in.Port)},
-		"db_name":  {in.Database},
-		"username": {in.Username},
-		"sslmode":  {in.SSLMode},
+	if rec := serve(mux, "DELETE", "/api/admin/connections/"+id.String(), nil, admin()); rec.Code != http.StatusNoContent {
+		t.Fatalf("mau 204, dapat %d", rec.Code)
 	}
-	serve(mux, request("POST", "/admin/databases/test", form.Encode(), user()))
-	page := view.data.(adminFormPage)
-	if page.TestStatus != "ok" {
-		t.Fatalf("tes harusnya berhasil pakai password tersimpan: %q", page.TestMessage)
-	}
-	if page.Input.Password != "" {
-		t.Fatal("password tersimpan nggak boleh dikirim balik ke form")
+	if rec := serve(mux, "DELETE", "/api/admin/connections/"+id.String(), nil, admin()); rec.Code != http.StatusNotFound {
+		t.Fatalf("hapus ulang: mau 404, dapat %d", rec.Code)
 	}
 }
 
 func TestAdminHapusMasihDipakai(t *testing.T) {
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
 	ctx := context.Background()
+	mux, _, store := newTestMux(t, nil)
+
 	id, err := store.Create(ctx, sampleInput("db-dipakai"))
 	if err != nil {
 		t.Fatal(err)
@@ -291,12 +229,184 @@ func TestAdminHapusMasihDipakai(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := serve(mux, request("POST", "/admin/databases/"+id.String()+"/delete", "", user()))
+	rec := serve(mux, "DELETE", "/api/admin/connections/"+id.String(), nil, admin())
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("mau 409, dapat %d", rec.Code)
 	}
-	if view.name != httpx.ErrorTemplate {
-		t.Fatalf("mau halaman error, dapat %q", view.name)
+	if typ, _, _ := problemOf(t, rec); typ != "urn:problem:connection-in-use" {
+		t.Fatalf("type salah: %q", typ)
+	}
+}
+
+func TestAdminTesKoneksi(t *testing.T) {
+	ctx := context.Background()
+	in := targetInput(t)
+	if in.Password == "" {
+		t.Skip("database test tanpa password")
+	}
+	mux, _, store := newTestMux(t, nil)
+	id, err := store.Create(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	withoutPassword := bodyOf(in)
+	withoutPassword.Password = ""
+	cases := []struct {
+		name, path string
+		body       any
+		ok         bool
+	}{
+		{"tersimpan", "/api/admin/connections/" + id.String() + "/test", nil, true},
+		{"form baru", "/api/admin/connections/test", bodyOf(in), true},
+		{"form edit pakai password tersimpan", "/api/admin/connections/test", struct {
+			connectionBody
+			ID string `json:"id"`
+		}{withoutPassword, id.String()}, true},
+	}
+	wrong := in
+	wrong.Password = "kata-sandi-yang-salah"
+	cases = append(cases, struct {
+		name, path string
+		body       any
+		ok         bool
+	}{"password salah", "/api/admin/connections/test", bodyOf(wrong), false})
+
+	for _, tc := range cases {
+		rec := serve(mux, "POST", tc.path, tc.body, admin())
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: mau 200, dapat %d: %s", tc.name, rec.Code, rec.Body.String())
+		}
+		res := decode[testResultJSON](t, rec)
+		if res.OK != tc.ok {
+			t.Fatalf("%s: ok=%v, mau %v: %q", tc.name, res.OK, tc.ok, res.Message)
+		}
+		if strings.Contains(rec.Body.String(), wrong.Password) {
+			t.Fatalf("%s: password nggak boleh ikut di response: %s", tc.name, rec.Body.String())
+		}
+	}
+}
+
+func TestAdminTesInputNggakValid(t *testing.T) {
+	mux, _, _ := newTestMux(t, nil)
+	rec := serve(mux, "POST", "/api/admin/connections/test", connectionBody{Name: "x"}, admin())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("mau 400, dapat %d", rec.Code)
+	}
+}
+
+func TestDaftarDatabaseDisaringAkses(t *testing.T) {
+	ctx := context.Background()
+	var allowed uuid.UUID
+	mux, _, store := newTestMux(t, func(_ context.Context, _, dbID uuid.UUID) (access.Level, error) {
+		if dbID == allowed {
+			return access.ViewOnly, nil
+		}
+		return access.NoAccess, nil
+	})
+
+	first, err := store.Create(ctx, sampleInput("boleh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed = first
+	if _, err := store.Create(ctx, sampleInput("nggak-boleh")); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serve(mux, "GET", "/api/databases", nil, admin())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mau 200, dapat %d", rec.Code)
+	}
+	list := decode[struct{ Items []databaseJSON }](t, rec)
+	if len(list.Items) != 1 || list.Items[0].Name != "boleh" || list.Items[0].Level != access.ViewOnly {
+		t.Fatalf("harusnya cuma 1 database view_only: %+v", list.Items)
+	}
+	if strings.Contains(rec.Body.String(), "db.internal") {
+		t.Fatalf("host nggak boleh kelihatan viewer: %s", rec.Body.String())
+	}
+}
+
+func TestDaftarDatabaseKosongTetapArray(t *testing.T) {
+	mux, _, _ := newTestMux(t, nil)
+	rec := serve(mux, "GET", "/api/databases", nil, userAs(false))
+	if !strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("mau items array kosong: %s", rec.Body.String())
+	}
+}
+
+// Admin tanpa grant juga ditolak (ADR-011), dan balasannya 404 biar keberadaan
+// database nggak bocor.
+func TestBukaDatabaseTanpaAkses(t *testing.T) {
+	mux, _, store := newTestMux(t, nil)
+	id, err := store.Create(context.Background(), sampleInput("rahasia"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/databases/" + id.String(), "/api/databases/" + id.String() + "/tables/public/x"} {
+		if rec := serve(mux, "GET", path, nil, admin()); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: mau 404, dapat %d", path, rec.Code)
+		}
+	}
+}
+
+func TestIDBukanUUID(t *testing.T) {
+	mux, _, _ := newTestMux(t, allow(access.ViewEdit))
+	if rec := serve(mux, "GET", "/api/databases/bukan-uuid", nil, admin()); rec.Code != http.StatusNotFound {
+		t.Fatalf("mau 404, dapat %d", rec.Code)
+	}
+}
+
+func TestViewerSchemaDanTabel(t *testing.T) {
+	ctx := context.Background()
+	in := targetInput(t)
+	mux, _, store := newTestMux(t, allow(access.ViewEdit))
+	id, err := store.Create(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schema := "viewer_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	_, err = store.db.Exec(ctx, `
+		CREATE SCHEMA `+schema+`;
+		CREATE TABLE `+schema+`.barang (id INT PRIMARY KEY, nama TEXT);
+		INSERT INTO `+schema+`.barang VALUES (1, 'sapu'), (2, NULL), (3, 'ember');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = store.db.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`) })
+
+	rec := serve(mux, "GET", "/api/databases/"+id.String(), nil, userAs(false))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mau 200, dapat %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"name":"`+schema+`"`) || !strings.Contains(rec.Body.String(), `"name":"barang"`) {
+		t.Fatalf("schema/tabel nggak muncul: %s", rec.Body.String())
+	}
+
+	rec = serve(mux, "GET", "/api/databases/"+id.String()+"/tables/"+schema+"/barang?page=1&perPage=2", nil, userAs(false))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mau 200, dapat %d: %s", rec.Code, rec.Body.String())
+	}
+	got := decode[struct {
+		Columns []columnJSON `json:"columns"`
+		Indexes []indexJSON  `json:"indexes"`
+		Rows    rowsJSON     `json:"rows"`
+	}](t, rec)
+	if len(got.Columns) != 2 || len(got.Indexes) != 1 {
+		t.Fatalf("kolom/index salah: %+v", got)
+	}
+	if got.Rows.Total != 3 || got.Rows.Pages != 2 || len(got.Rows.Rows) != 2 {
+		t.Fatalf("paging salah: %+v", got.Rows)
+	}
+	if got.Rows.Rows[1][1] != nil {
+		t.Fatalf("NULL harus jadi null di JSON: %v", *got.Rows.Rows[1][1])
+	}
+
+	rec = serve(mux, "GET", "/api/databases/"+id.String()+"/tables/"+schema+"/nggak_ada", nil, userAs(false))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("tabel nggak ada: mau 404, dapat %d", rec.Code)
 	}
 }
 
@@ -311,11 +421,7 @@ func TestGagalKonekDetailCumaBuatAdmin(t *testing.T) {
 		{"admin", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h, view, store := newTestHandler(t, func(context.Context, uuid.UUID, uuid.UUID) (access.Level, error) {
-				return access.ViewOnly, nil
-			})
-			mux := http.NewServeMux()
-			h.RegisterRoutes(mux)
+			mux, _, store := newTestMux(t, allow(access.ViewOnly))
 
 			in := sampleInput("mati")
 			in.Host = "127.0.0.1"
@@ -326,99 +432,15 @@ func TestGagalKonekDetailCumaBuatAdmin(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			rec := serve(mux, request("GET", "/databases/"+id.String(), "", userAs(tc.isAdmin)))
+			rec := serve(mux, "GET", "/api/databases/"+id.String(), nil, userAs(tc.isAdmin))
 			if rec.Code != http.StatusBadGateway {
 				t.Fatalf("mau 502, dapat %d", rec.Code)
 			}
-			msg := view.data.(httpx.ErrorPage).Message
-			if got := strings.Contains(msg, "127.0.0.1"); got != tc.lihatHost {
-				t.Fatalf("host kelihatan = %v, mau %v: %q", got, tc.lihatHost, msg)
+			_, detail, _ := problemOf(t, rec)
+			if got := strings.Contains(detail, "127.0.0.1"); got != tc.lihatHost {
+				t.Fatalf("host kelihatan = %v, mau %v: %q", got, tc.lihatHost, detail)
 			}
 		})
-	}
-}
-
-func TestNoticeNggakDiambilDariURL(t *testing.T) {
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	id, err := store.Create(context.Background(), sampleInput("db-notice"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := "/admin/databases/" + id.String()
-
-	serve(mux, request("GET", base+"?notice="+url.QueryEscape("pesan palsu"), "", user()))
-	if got := view.data.(adminDetailPage).Notice; got != "" {
-		t.Fatalf("teks bebas dari URL nggak boleh tampil, dapat %q", got)
-	}
-	serve(mux, request("GET", base+"?notice=dibuat", "", user()))
-	if got := view.data.(adminDetailPage).Notice; got != "Koneksi dibuat." {
-		t.Fatalf("notice dibuat salah: %q", got)
-	}
-}
-
-// TestTemplateRender mastiin semua template dbmgmt bisa dirender pakai data
-// asli. Typo nama field di template langsung kelihatan di sini, bukan pas demo.
-func TestTemplateRender(t *testing.T) {
-	rn, err := web.NewRenderer()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	conn := Connection{Name: "db-demo", Host: "localhost", Port: 5432, Database: "demo", Username: "app", SSLMode: "prefer"}
-	pages := []struct {
-		name string
-		data any
-	}{
-		{"dbmgmt/list", databaseListPage{Items: []listItem{{Connection: conn, Level: access.ViewOnly}}}},
-		{"dbmgmt/list", databaseListPage{}},
-		{"dbmgmt/database", databasePage{
-			Connection: conn,
-			Level:      access.ViewEdit,
-			Schemas: []schemaTables{{
-				Schema: Schema{Name: "public", Tables: 1},
-				Tables: []Table{{Name: "users", Kind: "table", Columns: 3}},
-			}},
-		}},
-		{"dbmgmt/table", tablePage{
-			Connection: conn,
-			Level:      access.ViewEdit,
-			Detail: TableDetail{
-				Schema:      "public",
-				Table:       "users",
-				Columns:     []Column{{Name: "id", DataType: "uuid", Default: "gen_random_uuid()"}},
-				Constraints: []Constraint{{Name: "users_pkey", Kind: "primary key", Definition: "PRIMARY KEY (id)"}},
-				Indexes:     []Index{{Name: "users_pkey", Primary: true, Definition: "CREATE UNIQUE INDEX ..."}},
-			},
-			Rows: RowPage{
-				Columns: []string{"id", "username"},
-				Rows:    [][]Cell{{{Value: "1"}, {Null: true}}},
-				Total:   1, Page: 1, PerPage: 50, Pages: 1,
-			},
-			PrevPage: 0, NextPage: 2,
-			BaseURL: "/databases/x/tables/public/users",
-		}},
-		{"dbmgmt/admin_list", adminListPage{Connections: []Connection{conn}}},
-		{"dbmgmt/admin_form", adminFormPage{Input: Input{Port: 5432, SSLMode: "prefer"}}},
-		{"dbmgmt/admin_form", adminFormPage{
-			IsEdit: true, ID: "x", Input: Input{Name: "db", SSLMode: "require"},
-			Error: "nama koneksi wajib diisi", TestStatus: "gagal", TestMessage: "password ditolak",
-		}},
-		{"dbmgmt/admin_detail", adminDetailPage{Connection: conn, Notice: "Koneksi dibuat.", TestStatus: "ok"}},
-		{httpx.ErrorTemplate, httpx.ErrorPage{Message: "Nggak punya akses.", BackURL: "/databases", BackLabel: "Kembali"}},
-	}
-
-	for _, p := range pages {
-		rec := httptest.NewRecorder()
-		rn.Render(rec, httptest.NewRequest("GET", "/", nil), p.name, p.data)
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s: status %d", p.name, rec.Code)
-		}
-		if strings.Contains(rec.Body.String(), "terjadi kesalahan") {
-			t.Errorf("%s: render gagal: %s", p.name, rec.Body.String())
-		}
 	}
 }
 
@@ -427,20 +449,15 @@ func TestTemplateRender(t *testing.T) {
 func TestDatabaseMatiSetelahPoolKebentuk(t *testing.T) {
 	ctx := context.Background()
 	in, kill := proxyTarget(t, targetInput(t))
-	h, view, store := newTestHandler(t, func(context.Context, uuid.UUID, uuid.UUID) (access.Level, error) {
-		return access.ViewOnly, nil
-	})
-	defer h.pools.Close()
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+	mux, _, store := newTestMux(t, allow(access.ViewOnly))
 
 	in.Name = "toko"
 	id, err := store.Create(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := "/databases/" + id.String()
-	if rec := serve(mux, request("GET", page, "", userAs(false))); rec.Code != http.StatusOK {
+	page := "/api/databases/" + id.String()
+	if rec := serve(mux, "GET", page, nil, userAs(false)); rec.Code != http.StatusOK {
 		t.Fatalf("sebelum mati mau 200, dapat %d", rec.Code)
 	}
 
@@ -455,51 +472,12 @@ func TestDatabaseMatiSetelahPoolKebentuk(t *testing.T) {
 		{"halaman tabel", 0, page + "/tables/public/apa_saja"},
 	} {
 		time.Sleep(tc.wait)
-		rec := serve(mux, request("GET", tc.path, "", userAs(false)))
+		rec := serve(mux, "GET", tc.path, nil, userAs(false))
 		if rec.Code != http.StatusBadGateway {
-			t.Fatalf("%s: mau 502, dapat %d (%+v)", tc.name, rec.Code, view.data)
+			t.Fatalf("%s: mau 502, dapat %d: %s", tc.name, rec.Code, rec.Body.String())
 		}
-		if msg := view.data.(httpx.ErrorPage).Message; strings.Contains(msg, "127.0.0.1") {
-			t.Fatalf("%s: user biasa nggak boleh lihat host: %q", tc.name, msg)
+		if _, detail, _ := problemOf(t, rec); strings.Contains(detail, "127.0.0.1") {
+			t.Fatalf("%s: user biasa nggak boleh lihat host: %q", tc.name, detail)
 		}
-	}
-}
-
-// Habis tes koneksi password nggak ditampilkan ulang. Kalau admin langsung
-// simpan tanpa ngisi lagi, harus ditolak, bukan kesimpan dengan password kosong.
-func TestAdminBuatKoneksiTanpaPasswordDitolak(t *testing.T) {
-	h, view, store := newTestHandler(t, nil)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	form := url.Values{
-		"name": {"db-demo"}, "host": {"localhost"}, "port": {"5432"},
-		"db_name": {"demo"}, "username": {"app"}, "password": {"rahasia"}, "sslmode": {"disable"},
-	}
-	serve(mux, request("POST", "/admin/databases/test", form.Encode(), user()))
-	if page := view.data.(adminFormPage); page.Input.Password != "" {
-		t.Fatal("password nggak boleh dikirim balik ke form")
-	}
-
-	form.Del("password")
-	rec := serve(mux, request("POST", "/admin/databases", form.Encode(), user()))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("mau 400, dapat %d", rec.Code)
-	}
-	if page := view.data.(adminFormPage); !strings.Contains(page.Error, "password") {
-		t.Fatalf("pesan error harus nyebut password: %q", page.Error)
-	}
-	if conns, _ := store.List(context.Background()); len(conns) != 0 {
-		t.Fatalf("koneksi nggak boleh kesimpan: %+v", conns)
-	}
-
-	rn, err := web.NewRenderer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rr := httptest.NewRecorder()
-	rn.Render(rr, httptest.NewRequest("GET", "/", nil), "dbmgmt/admin_form", adminFormPage{Input: Input{Port: 5432}, TestStatus: "ok"})
-	if !strings.Contains(rr.Body.String(), "isi lagi sebelum disimpan") {
-		t.Fatal("form baru habis tes koneksi harus ngingetin isi password lagi")
 	}
 }

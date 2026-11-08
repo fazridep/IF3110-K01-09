@@ -13,8 +13,8 @@ import (
 
 	"github.com/if3110/tubes-db-platform/internal/access"
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/httpx"
-	"github.com/if3110/tubes-db-platform/internal/testutil"
+	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
 func seedUser(t *testing.T, db *pgxpool.Pool, username string) *auth.User {
@@ -252,4 +252,3 @@ func TestApprovalRejectFlow(t *testing.T) {
 		t.Fatalf("approve setelah rejected harus 409, dapat %d", rec.Code)
 	}
 }
-
