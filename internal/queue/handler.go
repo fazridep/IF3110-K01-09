@@ -182,7 +182,7 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrNotApproved):
 		httpx.Fail(w, r, http.StatusConflict, "approval-required", "Perubahan ini belum disetujui semua leader group.")
 	case errors.Is(err, ErrInvalidResume):
-		httpx.Fail(w, r, http.StatusConflict, "invalid-resume", "Job yang dilanjutkan harus berstatus partial, dari migration yang sama, dan approval-nya berjenis batch.")
+		httpx.Fail(w, r, http.StatusConflict, "invalid-resume", "Job yang dilanjutkan harus berstatus partial, dari migration yang sama, dan approval-nya berjenis batch atau rollback.")
 	case errors.Is(err, ErrInvalidState):
 		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, "Status job nggak mengizinkan aksi ini.")
 	default:

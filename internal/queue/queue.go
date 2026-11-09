@@ -111,6 +111,16 @@ func (e *transientError) Unwrap() error { return e.err }
 
 func Transient(err error) error { return &transientError{err} }
 
+func IsPartial(err error) bool {
+	var pe *partialError
+	return errors.As(err, &pe)
+}
+
+func IsUncertain(err error) bool {
+	var ue *uncertainError
+	return errors.As(err, &ue)
+}
+
 var transientSQLStates = map[string]bool{
 	"40001": true, "40P01": true,
 	"53300": true, "57P01": true, "57P02": true, "57P03": true,

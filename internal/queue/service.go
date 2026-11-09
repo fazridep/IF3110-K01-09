@@ -10,7 +10,12 @@ import (
 )
 
 // ActionBatch aksi approval buat melanjutkan migration batch yang partial.
-const ActionBatch = "batch"
+// ActionRollback juga bisa menggantikan job partial, buat membatalkan batch
+// yang sudah committed atau melanjutkan pembatalan yang berhenti di tengah.
+const (
+	ActionBatch    = "batch"
+	ActionRollback = "rollback"
+)
 
 type Permissions interface {
 	CanView(ctx context.Context, userID, dbID uuid.UUID) (bool, error)
@@ -65,8 +70,17 @@ func (s *Service) Submit(ctx context.Context, userID, approvalID uuid.UUID, resu
 	if !a.Approved {
 		return nil, ErrNotApproved
 	}
-	if resumes != nil && a.Action != ActionBatch {
+	// Job partial menahan semua job berikutnya di database yang sama, jadi
+	// lanjutkan batch atau pembatalannya harus menggantikan job partial itu.
+	// Kalau SPA nggak mengirim resumeJobId, job partial-nya dicari sendiri.
+	canResume := a.Action == ActionBatch || a.Action == ActionRollback
+	if resumes != nil && !canResume {
 		return nil, ErrInvalidResume
+	}
+	if resumes == nil && canResume {
+		if resumes, err = s.store.PartialJob(ctx, a.MigrationID); err != nil {
+			return nil, err
+		}
 	}
 
 	ctx, span := obs.Start(ctx, "queue.enqueue")
