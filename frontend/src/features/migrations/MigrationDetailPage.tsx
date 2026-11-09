@@ -195,6 +195,9 @@ export default function MigrationDetailPage() {
                         </Button>
                       ))}
                       {pending && <span style={{ color: "var(--muted)", fontSize: ".85rem" }}>Masih ada approval yang menunggu review.</span>}
+                      {editing && !pending && (
+                        <span style={{ color: "var(--muted)", fontSize: ".85rem" }}>Simpan atau batalkan perubahan draft dulu.</span>
+                      )}
                     </div>
                   ) : (
                     <p style={{ margin: 0, color: "var(--muted)" }}>Belum ada aksi yang bisa diajukan untuk posisi migration ini.</p>

@@ -24,9 +24,13 @@ SET amount = b.amount
 FROM batch_rows b
 WHERE o.id = b.id;`;
 
-// Error per kolom sudah tampil di kolomnya, jangan diulang di alert.
-function hasFieldErrors(err: unknown): boolean {
-  return err instanceof ApiError && (err.problem.errors?.length ?? 0) > 0;
+const FORM_FIELDS = new Set(["description", "upSql", "downSql", "irreversibleReason", "mode", "batch.table", "batch.key", "batch.size"]);
+
+// Error per kolom sudah tampil di kolomnya, jangan diulang di alert. Error untuk
+// field yang nggak ada di form tetap ditampilkan di alert.
+function shownInFields(err: unknown): boolean {
+  const errors = err instanceof ApiError ? (err.problem.errors ?? []) : [];
+  return errors.length > 0 && errors.every((e) => FORM_FIELDS.has(e.field));
 }
 
 export function MigrationForm({ initial = emptyInput, submitLabel, saving, error, onSubmit, onCancel }: Props) {
@@ -44,8 +48,13 @@ export function MigrationForm({ initial = emptyInput, submitLabel, saving, error
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    // Cuma field definisi yang dikirim. initial bisa berisi data migration
+    // lengkap (id, status, dst) dan backend menolak field asing.
     onSubmit({
-      ...form,
+      description: form.description,
+      upSql: form.upSql,
+      mode: form.mode,
+      irreversible: form.irreversible,
       downSql: form.irreversible ? "" : form.downSql,
       irreversibleReason: form.irreversible ? form.irreversibleReason : "",
       batch: isBatch ? batch : null,
@@ -56,7 +65,7 @@ export function MigrationForm({ initial = emptyInput, submitLabel, saving, error
 
   return (
     <form onSubmit={submit} noValidate className="stack" style={{ gap: ".9rem" }}>
-      {error != null && !hasFieldErrors(error) && <Alert tone="danger" error={error} />}
+      {error != null && !shownInFields(error) && <Alert tone="danger" error={error} />}
 
       <Field label="Deskripsi" error={fieldErr("description")}>
         <input

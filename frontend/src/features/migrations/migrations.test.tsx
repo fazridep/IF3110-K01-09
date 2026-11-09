@@ -201,4 +201,52 @@ describe("halaman migration", () => {
     expect(screen.getByText("koneksi ke database target gagal")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ajukan Apply" })).toBeInTheDocument();
   });
+
+  it("ubah draft cuma mengirim field definisi, Ajukan nonaktif selama form terbuka", async () => {
+    let body: Record<string, unknown> | undefined;
+    let current = migration({ status: "draft", allowedActions: ["apply"] });
+    route = (url, init) => {
+      if (url.pathname === "/api/migrations/m1" && init?.method === "PUT") {
+        body = JSON.parse(String(init.body));
+        current = { ...current, description: String(body?.description) };
+        return json(200, current);
+      }
+      if (url.pathname === "/api/migrations/m1") return json(200, current);
+      if (url.pathname === "/api/databases/d1/history") return json(200, { items: [] });
+      if (url.pathname === "/api/approvals") return json(200, { items: [] });
+      if (url.pathname === "/api/databases/d1/migrations") return json(200, { items: [current] });
+    };
+    renderAt("/migrations/m1");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Ubah draft" }));
+    expect(screen.getByRole("button", { name: "Ajukan Apply" })).toBeDisabled();
+    expect(screen.getByText("Simpan atau batalkan perubahan draft dulu.")).toBeInTheDocument();
+
+    const desc = screen.getByLabelText("Deskripsi");
+    await user.clear(desc);
+    await user.type(desc, "tabel produk v2");
+    await user.click(screen.getByRole("button", { name: "Simpan perubahan" }));
+
+    expect(await screen.findByRole("heading", { name: "v2 tabel produk v2" })).toBeInTheDocument();
+    expect(Object.keys(body ?? {}).sort()).toEqual(
+      ["batch", "description", "downSql", "irreversible", "irreversibleReason", "mode", "upSql"],
+    );
+    expect(screen.getByRole("button", { name: "Ajukan Apply" })).toBeEnabled();
+  });
+
+  it("error field yang nggak ada di form tetap ditampilkan", async () => {
+    route = (url, init) => {
+      if (url.pathname === "/api/databases/d1/migrations" && init?.method === "POST") {
+        return json(400, {
+          type: "urn:problem:invalid-input", title: "Input tidak valid", status: 400,
+          detail: "Ada field yang tidak dikenal.", errors: [{ field: "id", detail: "field tidak dikenal" }],
+        });
+      }
+    };
+    renderAt("/databases/d1/migrations/new");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Simpan draft" }));
+    expect(await screen.findByText("Ada field yang tidak dikenal.")).toBeInTheDocument();
+  });
 });
