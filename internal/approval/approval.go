@@ -102,13 +102,24 @@ type Permissions interface {
 	LeaderGroupsForDatabase(ctx context.Context, userID, dbID uuid.UUID) ([]uuid.UUID, error)
 }
 
+// ActionError aksi ditolak aturan migration, misalnya rollback yang bukan
+// migration aktif terakhir. Reason langsung ditampilkan ke user.
+type ActionError struct{ Reason string }
+
+func (e *ActionError) Error() string { return e.Reason }
+
+// ActionCheckFunc opsional: dipanggil sebelum request dibuat, diisi package
+// migration lewat cmd/server.
+type ActionCheckFunc func(ctx context.Context, migrationID uuid.UUID, action Action) error
+
 // OnApprovedFunc opsional: dipanggil saat semua leader group sudah menyetujui request.
 type OnApprovedFunc func(ctx context.Context, req *Request) error
 
 type Service struct {
-	db         *pgxpool.Pool
-	perms      Permissions
-	onApproved OnApprovedFunc
+	db          *pgxpool.Pool
+	perms       Permissions
+	onApproved  OnApprovedFunc
+	checkAction ActionCheckFunc
 }
 
 func NewService(db *pgxpool.Pool, perms Permissions) *Service {
@@ -117,4 +128,8 @@ func NewService(db *pgxpool.Pool, perms Permissions) *Service {
 
 func (s *Service) SetOnApproved(fn OnApprovedFunc) {
 	s.onApproved = fn
+}
+
+func (s *Service) SetActionCheck(fn ActionCheckFunc) {
+	s.checkAction = fn
 }

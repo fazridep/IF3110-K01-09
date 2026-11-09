@@ -2,152 +2,194 @@ package migration
 
 import (
 	"errors"
-	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/if3110/tubes-db-platform/internal/auth"
 	"github.com/if3110/tubes-db-platform/internal/platform/httpx"
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 )
 
+// Handler API JSON migration. Eksekusi nggak ada di sini: semua lewat approval
+// (POST /api/approvals) lalu queue (POST /api/jobs).
 type Handler struct {
-	svc  *Service
-	view httpx.Renderer
+	svc *Service
 }
 
-func NewHandler(svc *Service, view httpx.Renderer) *Handler {
-	return &Handler{svc: svc, view: view}
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svc: svc}
 }
 
-// RegisterRoutes didaftarkan ke mux yang sudah dibungkus auth.RequireLogin.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /databases/{dbID}/migrations", h.list)
-	mux.HandleFunc("GET /databases/{dbID}/migrations/new", h.newForm)
-	mux.HandleFunc("POST /databases/{dbID}/migrations", h.create)
-	mux.HandleFunc("GET /migrations/{id}", h.detail)
-	mux.HandleFunc("POST /migrations/{id}", h.update)
-	mux.HandleFunc("POST /migrations/{id}/execute", h.execute)
+func (h *Handler) RegisterAPIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/databases/{dbId}/migrations", h.list)
+	mux.HandleFunc("POST /api/databases/{dbId}/migrations", h.create)
+	mux.HandleFunc("GET /api/databases/{dbId}/history", h.history)
+	mux.HandleFunc("GET /api/migrations/{id}", h.show)
+	mux.HandleFunc("PUT /api/migrations/{id}", h.update)
 }
 
-type listPage struct {
-	DatabaseID uuid.UUID
-	Migrations []Migration
-	CanEdit    bool
+type batchJSON struct {
+	Table  string `json:"table"`
+	Key    string `json:"key"`
+	Size   int    `json:"size"`
+	Backup bool   `json:"backup"`
 }
 
-type formPage struct {
-	DatabaseID  uuid.UUID
-	ID          uuid.UUID
-	Description string
-	SQL         string
-	Error       string
+type definitionJSON struct {
+	Description        string     `json:"description"`
+	UpSQL              string     `json:"upSql"`
+	DownSQL            string     `json:"downSql"`
+	Irreversible       bool       `json:"irreversible"`
+	IrreversibleReason string     `json:"irreversibleReason"`
+	Mode               Mode       `json:"mode"`
+	Batch              *batchJSON `json:"batch"`
 }
 
-type detailPage struct {
-	Migration *Migration
-	CanEdit   bool
-	Form      formPage
+func (in definitionJSON) definition() Definition {
+	d := Definition{
+		Description:        in.Description,
+		UpSQL:              in.UpSQL,
+		DownSQL:            in.DownSQL,
+		Irreversible:       in.Irreversible,
+		IrreversibleReason: in.IrreversibleReason,
+		Mode:               in.Mode,
+	}
+	if in.Batch != nil {
+		d.Batch = Batch{Table: in.Batch.Table, Key: in.Batch.Key, Size: in.Batch.Size, Backup: in.Batch.Backup}
+	}
+	return d
+}
+
+type migrationJSON struct {
+	ID         uuid.UUID `json:"id"`
+	DatabaseID uuid.UUID `json:"databaseId"`
+	Version    int       `json:"version"`
+	definitionJSON
+	Status        Status     `json:"status"`
+	Error         string     `json:"error"`
+	CreatedBy     string     `json:"createdBy"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	ExecutedBy    string     `json:"executedBy"`
+	StartedAt     *time.Time `json:"startedAt"`
+	FinishedAt    *time.Time `json:"finishedAt"`
+	UpExecutionID *uuid.UUID `json:"upExecutionId"`
+}
+
+type migrationDetailJSON struct {
+	migrationJSON
+	CanEdit bool `json:"canEdit"`
+	// AllowedActions aksi yang saat ini boleh diajukan approval-nya.
+	AllowedActions []string `json:"allowedActions"`
+}
+
+func toMigrationJSON(m *Migration) migrationJSON {
+	out := migrationJSON{
+		ID:         m.ID,
+		DatabaseID: m.DatabaseID,
+		Version:    m.Version,
+		definitionJSON: definitionJSON{
+			Description:        m.Description,
+			UpSQL:              m.UpSQL,
+			DownSQL:            m.DownSQL,
+			Irreversible:       m.Irreversible,
+			IrreversibleReason: m.IrreversibleReason,
+			Mode:               m.Mode,
+		},
+		Status:        m.Status,
+		Error:         m.Error,
+		CreatedBy:     m.CreatedBy,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+		ExecutedBy:    m.ExecutedBy,
+		StartedAt:     m.StartedAt,
+		FinishedAt:    m.FinishedAt,
+		UpExecutionID: m.UpExecutionID,
+	}
+	if m.Mode == ModeBatch {
+		out.Batch = &batchJSON{Table: m.Batch.Table, Key: m.Batch.Key, Size: m.Batch.Size, Backup: m.Batch.Backup}
+	}
+	return out
+}
+
+type executionJSON struct {
+	ID                 uuid.UUID  `json:"id"`
+	MigrationID        uuid.UUID  `json:"migrationId"`
+	Version            int        `json:"version"`
+	Description        string     `json:"description"`
+	Action             string     `json:"action"`
+	RevertsExecutionID *uuid.UUID `json:"revertsExecutionId"`
+	JobID              uuid.UUID  `json:"jobId"`
+	Status             ExecStatus `json:"status"`
+	SQL                string     `json:"sql"`
+	Mode               Mode       `json:"mode"`
+	BatchSize          int        `json:"batchSize"`
+	BatchesCommitted   int64      `json:"batchesCommitted"`
+	RowsCommitted      int64      `json:"rowsCommitted"`
+	Cursor             string     `json:"cursor"`
+	Error              string     `json:"error"`
+	ExecutedBy         string     `json:"executedBy"`
+	StartedAt          time.Time  `json:"startedAt"`
+	FinishedAt         *time.Time `json:"finishedAt"`
+	Committed          bool       `json:"committed"`
+	CommittedAt        *time.Time `json:"committedAt"`
+}
+
+func toExecutionJSON(e Execution) executionJSON {
+	return executionJSON{
+		ID: e.ID, MigrationID: e.MigrationID, Version: e.Version, Description: e.Description,
+		Action: e.Action, RevertsExecutionID: e.RevertsExecutionID, JobID: e.JobID, Status: e.Status,
+		SQL: e.SQL, Mode: e.Mode, BatchSize: e.BatchSize, BatchesCommitted: e.Batches,
+		RowsCommitted: e.Rows, Cursor: e.Cursor, Error: e.Error, ExecutedBy: e.ExecutedBy,
+		StartedAt: e.StartedAt, FinishedAt: e.FinishedAt, Committed: e.Committed, CommittedAt: e.CommittedAt,
+	}
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := h.pathID(w, r, "dbID")
+	dbID, ok := httpx.PathUUID(r, "dbId")
 	if !ok {
+		httpx.NotFound(w, r, "Database tidak ditemukan.")
 		return
 	}
-	userID := auth.CurrentUser(r.Context()).ID
-	migrations, err := h.svc.List(r.Context(), userID, dbID)
+	list, err := h.svc.List(r.Context(), auth.CurrentUser(r.Context()).ID, dbID)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	canEdit, err := h.svc.CanEdit(r.Context(), userID, dbID)
-	if err != nil {
-		h.fail(w, r, err)
-		return
+	items := make([]migrationJSON, 0, len(list))
+	for i := range list {
+		items = append(items, toMigrationJSON(&list[i]))
 	}
-	h.view.Render(w, r, "migration/list", listPage{DatabaseID: dbID, Migrations: migrations, CanEdit: canEdit})
-}
-
-func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := h.pathID(w, r, "dbID")
-	if !ok {
-		return
-	}
-	canEdit, err := h.svc.CanEdit(r.Context(), auth.CurrentUser(r.Context()).ID, dbID)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	if !canEdit {
-		h.fail(w, r, ErrForbidden)
-		return
-	}
-	h.view.Render(w, r, "migration/form", formPage{DatabaseID: dbID})
+	httpx.JSON(w, http.StatusOK, httpx.NewList(items))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	dbID, ok := h.pathID(w, r, "dbID")
+	dbID, ok := httpx.PathUUID(r, "dbId")
 	if !ok {
+		httpx.NotFound(w, r, "Database tidak ditemukan.")
 		return
 	}
-	form := formPage{DatabaseID: dbID, Description: r.FormValue("description"), SQL: r.FormValue("sql")}
-	m, err := h.svc.Create(r.Context(), auth.CurrentUser(r.Context()).ID, dbID, form.Description, form.SQL)
-	if isInputError(err) {
-		form.Error = err.Error()
-		h.view.Render(w, r, "migration/form", form)
+	var in definitionJSON
+	if !httpx.Decode(w, r, &in) {
 		return
 	}
+	m, err := h.svc.Create(r.Context(), auth.CurrentUser(r.Context()).ID, dbID, in.definition())
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/migrations/"+m.ID.String(), http.StatusSeeOther)
+	obs.Info(r.Context(), "migration.created", "draft migration dibuat",
+		obs.KeyMigrationID, m.ID.String(), "database_id", dbID.String(), "migration_version", m.Version)
+	httpx.Created(w, "/api/migrations/"+m.ID.String(), toMigrationJSON(m))
 }
 
-func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
-	h.showDetail(w, r, "")
-}
-
-func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.pathID(w, r, "id")
+func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpx.PathUUID(r, "id")
 	if !ok {
-		return
-	}
-	_, err := h.svc.Update(r.Context(), auth.CurrentUser(r.Context()).ID, id, r.FormValue("description"), r.FormValue("sql"))
-	if isInputError(err) {
-		h.showDetail(w, r, err.Error())
-		return
-	}
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	http.Redirect(w, r, "/migrations/"+id.String(), http.StatusSeeOther)
-}
-
-func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.pathID(w, r, "id")
-	if !ok {
-		return
-	}
-	_, err := h.svc.Execute(r.Context(), auth.CurrentUser(r.Context()).ID, id)
-	if isInputError(err) {
-		h.showDetail(w, r, err.Error())
-		return
-	}
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	http.Redirect(w, r, "/migrations/"+id.String(), http.StatusSeeOther)
-}
-
-// showDetail menampilkan detail migration. Kalau formError terisi, form edit
-// diisi ulang dengan input user beserta pesan error-nya.
-func (h *Handler) showDetail(w http.ResponseWriter, r *http.Request, formError string) {
-	id, ok := h.pathID(w, r, "id")
-	if !ok {
+		httpx.NotFound(w, r, "Migration tidak ditemukan.")
 		return
 	}
 	userID := auth.CurrentUser(r.Context()).ID
@@ -161,41 +203,79 @@ func (h *Handler) showDetail(w http.ResponseWriter, r *http.Request, formError s
 		h.fail(w, r, err)
 		return
 	}
-
-	form := formPage{DatabaseID: m.DatabaseID, ID: m.ID, Description: m.Description, SQL: m.SQL}
-	if formError != "" && r.Method == http.MethodPost && r.FormValue("sql") != "" {
-		form.Description, form.SQL = r.FormValue("description"), r.FormValue("sql")
+	actions, err := h.svc.AllowedActions(r.Context(), m)
+	if err != nil {
+		h.fail(w, r, err)
+		return
 	}
-	form.Error = formError
-	h.view.Render(w, r, "migration/detail", detailPage{Migration: m, CanEdit: canEdit, Form: form})
+	httpx.JSON(w, http.StatusOK, migrationDetailJSON{migrationJSON: toMigrationJSON(m), CanEdit: canEdit, AllowedActions: actions})
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpx.PathUUID(r, "id")
+	if !ok {
+		httpx.NotFound(w, r, "Migration tidak ditemukan.")
+		return
+	}
+	var in definitionJSON
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	m, err := h.svc.Update(r.Context(), auth.CurrentUser(r.Context()).ID, id, in.definition())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	obs.Info(r.Context(), "migration.updated", "draft migration diubah", obs.KeyMigrationID, m.ID.String())
+	httpx.JSON(w, http.StatusOK, toMigrationJSON(m))
+}
+
+func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
+	dbID, ok := httpx.PathUUID(r, "dbId")
+	if !ok {
+		httpx.NotFound(w, r, "Database tidak ditemukan.")
+		return
+	}
+	q := r.URL.Query()
+	f := HistoryFilter{HideRollback: q.Get("hideRollback") == "true" || q.Get("hideRollback") == "1"}
+	if raw := strings.TrimSpace(q.Get("migrationId")); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			httpx.Invalid(w, r, "Parameter migrationId tidak valid.", httpx.FieldError{Field: "migrationId", Detail: "UUID tidak valid"})
+			return
+		}
+		f.MigrationID = &id
+	}
+	list, err := h.svc.History(r.Context(), auth.CurrentUser(r.Context()).ID, dbID, f)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	items := make([]executionJSON, 0, len(list))
+	for _, e := range list {
+		items = append(items, toExecutionJSON(e))
+	}
+	httpx.JSON(w, http.StatusOK, httpx.NewList(items))
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
-	status, msg := http.StatusInternalServerError, "Terjadi kesalahan di server."
+	var input *InputError
 	switch {
-	case errors.Is(err, ErrForbidden):
-		status, msg = http.StatusForbidden, "Kamu nggak punya akses untuk aksi ini."
+	case errors.As(err, &input):
+		httpx.Invalid(w, r, input.Message(), httpx.FieldError{Field: input.Field, Detail: input.Message()})
 	case errors.Is(err, ErrNotFound):
-		status, msg = http.StatusNotFound, "Migration nggak ditemukan."
+		httpx.NotFound(w, r, "Migration atau database tidak ditemukan.")
+	case errors.Is(err, ErrForbidden):
+		httpx.Fail(w, r, http.StatusForbidden, httpx.CodeForbidden, "Hanya user dengan akses View + Edit yang boleh membuat atau mengubah migration.")
+	case errors.Is(err, ErrPendingExists):
+		httpx.Fail(w, r, http.StatusConflict, "pending-exists", "Masih ada draft migration lain di database ini. Selesaikan dulu sebelum membuat yang baru.")
+	case errors.Is(err, ErrNotDraft):
+		httpx.Fail(w, r, http.StatusConflict, "migration-immutable", "Migration ini sudah pernah dijalankan, SQL-nya nggak bisa diubah. Buat migration baru untuk perbaikan.")
+	case errors.Is(err, ErrBusy):
+		httpx.Fail(w, r, http.StatusConflict, "migration-busy", "Migration ini sedang menunggu atau dijalankan worker.")
+	case errors.Is(err, ErrTargetUnavailable):
+		httpx.Fail(w, r, http.StatusBadGateway, httpx.CodeUnavailable, "Database target nggak bisa dihubungi untuk mengecek tabel batch.")
 	default:
-		log.Printf("migration: %v", err)
+		httpx.ServerError(w, r, err)
 	}
-	httpx.Error(w, r, h.view, status, httpx.ErrorPage{
-		Message:   msg,
-		BackURL:   "/databases",
-		BackLabel: "Kembali ke daftar database",
-	})
-}
-
-func isInputError(err error) bool {
-	return errors.Is(err, ErrEmptySQL) || errors.Is(err, ErrEmptyDescription) ||
-		errors.Is(err, ErrNotTransactional) || errors.Is(err, ErrPendingExists) || errors.Is(err, ErrNotDraft)
-}
-
-func (h *Handler) pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
-	id, ok := httpx.PathUUID(r, name)
-	if !ok {
-		h.fail(w, r, ErrNotFound)
-	}
-	return id, ok
 }

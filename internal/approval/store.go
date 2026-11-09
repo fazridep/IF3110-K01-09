@@ -37,6 +37,11 @@ func (s *Service) Submit(ctx context.Context, userID, migrationID uuid.UUID, act
 	if !canEdit {
 		return nil, ErrForbidden
 	}
+	if s.checkAction != nil {
+		if err := s.checkAction(ctx, migrationID, action); err != nil {
+			return nil, err
+		}
+	}
 
 	groups, err := s.perms.DatabaseApproverGroups(ctx, dbID)
 	if err != nil {
@@ -93,7 +98,7 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID, statusFilter strin
 			dc.name,
 			dm.version,
 			dm.description,
-			dm.sql_text,
+			CASE WHEN ar.action = 'rollback' THEN dm.down_sql ELSE dm.sql_text END,
 			ar.action,
 			ar.status,
 			ar.requested_by,
@@ -174,7 +179,7 @@ func (s *Service) Get(ctx context.Context, userID, requestID uuid.UUID) (*Reques
 			dc.name,
 			dm.version,
 			dm.description,
-			dm.sql_text,
+			CASE WHEN ar.action = 'rollback' THEN dm.down_sql ELSE dm.sql_text END,
 			ar.action,
 			ar.status,
 			ar.requested_by,

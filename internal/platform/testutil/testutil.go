@@ -18,6 +18,19 @@ import (
 // kosong, test di-skip.
 func DB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	pool := EmptyDB(t)
+	if _, err := store.Migrate(context.Background(), pool, migrations.Metadata); err != nil {
+		t.Fatal(err)
+	}
+	return pool
+}
+
+// EmptyDB sama dengan DB tapi schema-nya kosong, buat jadi database target.
+// Tabel yang dibuat tanpa nama schema masuk ke schema ini. Schema _dbplatform
+// (bukti commit dan checkpoint batch) dipakai bareng semua test, isinya
+// dibedakan lewat ID job dan eksekusi.
+func EmptyDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL kosong, integration test dilewati")
@@ -49,9 +62,5 @@ func DB(t *testing.T) *pgxpool.Pool {
 		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
 		admin.Close()
 	})
-
-	if _, err := store.Migrate(ctx, pool, migrations.Metadata); err != nil {
-		t.Fatal(err)
-	}
 	return pool
 }
