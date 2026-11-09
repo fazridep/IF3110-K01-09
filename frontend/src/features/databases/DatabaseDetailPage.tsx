@@ -32,8 +32,7 @@ export default function DatabaseDetailPage() {
             actions={
               <>
                 <Link className="btn btn-line" to={`/jobs?databaseId=${db.id}`}>Job</Link>
-                {/* Halaman migration masih Go template, jadi perlu muat ulang penuh. */}
-                <a className="btn btn-accent" href={`/databases/${db.id}/migrations`}>Riwayat migration</a>
+                <Link className="btn btn-accent" to={`/databases/${db.id}/migrations`}>Migration</Link>
               </>
             }
           />

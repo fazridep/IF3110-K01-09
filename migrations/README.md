@@ -15,7 +15,7 @@ bukan di sini.
 | 0100-0199 | auth | users, sessions |
 | 0200-0299 | dbmgmt | database_connections |
 | 0300-0399 | access, admin | groups, group_members, group_database_access |
-| 0400-0499 | migration | database_migrations |
+| 0400-0499 | migration | database_migrations, migration_executions, migration_history |
 | 0500-0599 | approval | approval_requests, approval_group_decisions |
 | 0600-0699 | queue | migration_jobs, database_locks |
 

@@ -30,10 +30,3 @@ export const navGroups: NavGroup[] = [
     ],
   },
 ];
-
-export const migrationsNav: NavItem = {
-  to: "/databases/:dbId/migrations",
-  label: "Migration",
-  ready: false,
-  description: "",
-};

@@ -252,3 +252,52 @@ func TestApprovalRejectFlow(t *testing.T) {
 		t.Fatalf("approve setelah rejected harus 409, dapat %d", rec.Code)
 	}
 }
+
+func TestSubmitDitolakAturanMigration(t *testing.T) {
+	db := testutil.DB(t)
+	svc := NewService(db, access.NewStore(db))
+	var gotAction Action
+	svc.SetActionCheck(func(_ context.Context, _ uuid.UUID, action Action) error {
+		gotAction = action
+		if action == ActionRollback {
+			return &ActionError{Reason: "rollback harus dari migration aktif terakhir, rollback v2 dulu"}
+		}
+		return nil
+	})
+	mux := http.NewServeMux()
+	NewHandler(svc).RegisterAPIRoutes(mux)
+
+	leader := seedUser(t, db, "leader")
+	editor := seedUser(t, db, "editor")
+	dbID := seedDatabase(t, db, "toko")
+	g := seedGroupWithLeader(t, db, "backend", leader, editor)
+	seedGrant(t, db, g, dbID, "view_edit")
+	migID := seedMigration(t, db, dbID, editor.ID, 1, "tabel", "CREATE TABLE t (id INT);")
+	if _, err := db.Exec(context.Background(),
+		`UPDATE database_migrations SET down_sql = 'DROP TABLE t;' WHERE id = $1`, migID); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doReq(mux, http.MethodPost, "/api/approvals", `{"migrationId":"`+migID.String()+`","action":"rollback"}`, editor)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "action-not-allowed") ||
+		!strings.Contains(rec.Body.String(), "rollback v2 dulu") {
+		t.Fatalf("mau 409 action-not-allowed dengan alasan, dapat %d: %s", rec.Code, rec.Body.String())
+	}
+	if gotAction != ActionRollback {
+		t.Fatalf("hook harus dapat aksi rollback, dapat %q", gotAction)
+	}
+
+	// Yang lolos cek tetap dibuat. Review rollback menampilkan SQL down.
+	svc.SetActionCheck(func(context.Context, uuid.UUID, Action) error { return nil })
+	rec = doReq(mux, http.MethodPost, "/api/approvals", `{"migrationId":"`+migID.String()+`","action":"rollback"}`, editor)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mau 201, dapat %d: %s", rec.Code, rec.Body.String())
+	}
+	var created approvalJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.SQL != "DROP TABLE t;" {
+		t.Fatalf("review rollback harus menampilkan SQL down, dapat %q", created.SQL)
+	}
+}

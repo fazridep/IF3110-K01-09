@@ -102,6 +102,21 @@ func (s *Store) Enqueue(ctx context.Context, in NewJob) (id uuid.UUID, created b
 	return id, true, nil
 }
 
+// PartialJob job partial terbaru milik migration ini, nil kalau nggak ada.
+func (s *Store) PartialJob(ctx context.Context, migrationID uuid.UUID) (*uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.db.QueryRow(ctx, `
+		SELECT id FROM migration_jobs WHERE migration_id = $1 AND status = 'partial'
+		ORDER BY seq DESC LIMIT 1`, migrationID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("queue: cari job partial: %w", err)
+	}
+	return &id, nil
+}
+
 const jobDetailFrom = `
 	FROM migration_jobs j
 	JOIN database_connections dc ON dc.id = j.database_id

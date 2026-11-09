@@ -37,10 +37,6 @@ func runServer(cfg *config.Config) {
 	})
 	defer db.Close()
 
-	view, err := web.NewRenderer()
-	if err != nil {
-		log.Fatal(err)
-	}
 	cipher, err := dbmgmt.NewCipher(cfg.CredentialEncryptionKey)
 	if err != nil {
 		log.Fatalf("%v\nisi CREDENTIAL_ENCRYPTION_KEY di .env, bikin dengan: openssl rand -base64 32", err)
@@ -61,28 +57,27 @@ func runServer(cfg *config.Config) {
 	authHandler := auth.NewHandler(db, sessions)
 	dbHandler := dbmgmt.NewHandler(connections, pools, perms)
 	adminHandler := admin.NewHandler(admin.NewStore(db), sessions)
+	migrations := migration.NewService(db, perms, pools)
+	migHandler := migration.NewHandler(migrations)
 	approvals := approval.NewService(db, perms)
+	approvals.SetActionCheck(migrationActionCheck{migrations}.Check)
 	approvalHandler := approval.NewHandler(approvals)
 	jobs := queue.NewService(queue.NewStore(db), perms, approvalLookup{approvals}, cfg.WorkerMaxAttempts)
 	jobHandler := queue.NewHandler(jobs)
-	migHandler := migration.NewHandler(migration.NewService(db, perms, pools), view)
 
 	registerAPI := func(mux *http.ServeMux) {
 		dbHandler.RegisterAPIRoutes(mux)
 		adminHandler.RegisterAPIRoutes(mux)
 		approvalHandler.RegisterAPIRoutes(mux)
 		jobHandler.RegisterAPIRoutes(mux)
-	}
-	register := func(mux *http.ServeMux) {
-		migHandler.RegisterRoutes(mux)
+		migHandler.RegisterAPIRoutes(mux)
 	}
 	handler := web.NewRouter(web.Options{
-		Sessions:      sessions,
-		Auth:          authHandler,
-		RegisterAPI:   registerAPI,
-		RegisterPages: register,
-		SPA:           web.NewSPA(os.DirFS(cfg.SPADir)),
-		Secure:        cfg.IsProduction(),
+		Sessions:    sessions,
+		Auth:        authHandler,
+		RegisterAPI: registerAPI,
+		SPA:         web.NewSPA(os.DirFS(cfg.SPADir)),
+		Secure:      cfg.IsProduction(),
 	})
 
 	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
@@ -108,4 +103,22 @@ func (a approvalLookup) Lookup(ctx context.Context, userID, approvalID uuid.UUID
 		Action:      string(req.Action),
 		Approved:    req.Status == approval.StatusApproved,
 	}, nil
+}
+
+// migrationActionCheck menolak pengajuan approval yang pasti ditolak worker,
+// misalnya rollback yang bukan migration aktif terakhir.
+type migrationActionCheck struct {
+	svc *migration.Service
+}
+
+func (c migrationActionCheck) Check(ctx context.Context, migrationID uuid.UUID, action approval.Action) error {
+	err := c.svc.CheckAction(ctx, migrationID, string(action))
+	var na *migration.NotAllowedError
+	if errors.As(err, &na) {
+		return &approval.ActionError{Reason: na.Reason}
+	}
+	if errors.Is(err, migration.ErrNotFound) {
+		return approval.ErrNotFound
+	}
+	return err
 }

@@ -1,7 +1,7 @@
 import { createBrowserRouter, Outlet, type RouteObject } from "react-router";
 import { RequireAdmin, RequireAuth } from "../features/auth/RequireAuth";
 import { AppLayout } from "../layout/AppLayout";
-import { migrationsNav, navGroups, type NavItem } from "../layout/nav";
+import { navGroups, type NavItem } from "../layout/nav";
 import ComingSoon from "../features/placeholder/ComingSoon";
 import { NotFoundPage, RouteError } from "./errors";
 
@@ -13,7 +13,7 @@ const placeholder = (item: NavItem): RouteObject => {
   };
 };
 
-const placeholders = [...navGroups.flatMap((g) => g.items), migrationsNav].filter((i) => !i.ready).map(placeholder);
+const placeholders = navGroups.flatMap((g) => g.items).filter((i) => !i.ready).map(placeholder);
 
 export const routes: RouteObject[] = [
   {
@@ -35,6 +35,9 @@ export const routes: RouteObject[] = [
       { path: "databases", lazy: { Component: async () => (await import("../features/databases/DatabasesPage")).default } },
       { path: "databases/:dbId", lazy: { Component: async () => (await import("../features/databases/DatabaseDetailPage")).default } },
       { path: "databases/:dbId/tables/:schema/:table", lazy: { Component: async () => (await import("../features/databases/TablePage")).default } },
+      { path: "databases/:dbId/migrations", lazy: { Component: async () => (await import("../features/migrations/MigrationsPage")).default } },
+      { path: "databases/:dbId/migrations/new", lazy: { Component: async () => (await import("../features/migrations/NewMigrationPage")).default } },
+      { path: "migrations/:id", lazy: { Component: async () => (await import("../features/migrations/MigrationDetailPage")).default } },
       { path: "jobs", lazy: { Component: async () => (await import("../features/jobs/JobsPage")).default } },
       { path: "jobs/:jobId", lazy: { Component: async () => (await import("../features/jobs/JobDetailPage")).default } },
       {

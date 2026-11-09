@@ -186,7 +186,10 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req, err := h.svc.Submit(r.Context(), u.ID, migID, Action(strings.TrimSpace(in.Action)))
+	var actionErr *ActionError
 	switch {
+	case errors.As(err, &actionErr):
+		httpx.Fail(w, r, http.StatusConflict, "action-not-allowed", actionErr.Reason)
 	case errors.Is(err, ErrInvalidAction):
 		httpx.Invalid(w, r, "Jenis aksi tidak valid.", httpx.FieldError{Field: "action", Detail: "harus apply, rollback, forward, atau batch"})
 	case errors.Is(err, ErrNotFound):
