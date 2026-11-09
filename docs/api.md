@@ -166,13 +166,59 @@ Khusus Platform Admin (lainnya `403`). Password nggak pernah dikirim balik.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| `POST` | `/api/jobs` | `{approvalId, resumeJobId?}` | `202 {jobId,status,statusUrl}`. Kirim ulang approval yang sama dapat job yang sama. `403` kalau bukan View + Edit, `404` kalau nggak boleh lihat, `409` `approval-required` / `invalid-resume` |
+| `POST` | `/api/jobs` | `{approvalId, resumeJobId?}` | `202 {jobId,status,statusUrl}`. Kirim ulang approval yang sama dapat job yang sama. `403` kalau bukan View + Edit, `404` kalau nggak boleh lihat, `409` `approval-required` / `invalid-resume`. `resumeJobId` boleh kosong, job partial dicari sendiri |
 | `GET` | `/api/jobs?databaseId=&status=&limit=&cursor=` | - | job di database yang boleh dilihat, terbaru dulu, plus `nextCursor` |
 | `GET` | `/api/jobs/{id}` | - | job. `404` kalau nggak boleh lihat |
 | `POST` | `/api/jobs/{id}/recheck` | - | periksa ulang job `uncertain`. `409` kalau statusnya lain |
 
 Status job: `queued`, `running`, `success`, `failed`, `partial`, `uncertain`,
 `superseded`. `202` cuma berarti masuk queue, hasilnya dipantau lewat `statusUrl`.
+
+## Endpoint migration (bagian 4)
+
+Semua perlu login. Yang nggak bisa melihat database itu dapat `404`, yang cuma
+View Only dapat `403` waktu membuat atau mengubah.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `GET` | `/api/databases/{id}/migrations` | - | migration terbaru dulu |
+| `POST` | `/api/databases/{id}/migrations` | definisi (lihat bawah) | `201` draft. `400` per field, `409` `pending-exists`, `502` kalau target mati waktu cek tabel batch |
+| `GET` | `/api/migrations/{id}` | - | migration plus `canEdit` dan `allowedActions` |
+| `PUT` | `/api/migrations/{id}` | definisi | cuma draft. `409` `migration-immutable` atau `migration-busy` |
+| `GET` | `/api/databases/{id}/history?hideRollback=&migrationId=` | - | riwayat eksekusi, terlama dulu |
+
+Definisi:
+
+```json
+{
+  "description": "naikkan harga",
+  "upSql": "UPDATE orders o SET amount = o.amount * 1.1 FROM batch_rows b WHERE o.id = b.id;",
+  "downSql": "UPDATE orders o SET amount = b.amount FROM batch_rows b WHERE o.id = b.id;",
+  "irreversible": false,
+  "irreversibleReason": "",
+  "mode": "batch",
+  "batch": { "table": "public.orders", "key": "id", "size": 10000, "backup": true }
+}
+```
+
+`batch` diisi `null` buat mode normal. Kalau `irreversible` true, `downSql`
+dikosongkan dan `irreversibleReason` wajib.
+
+Status migration: `draft`, `running`, `success`, `failed`, `rolled_back`,
+`partial`, `partially_reverted`. `allowedActions` berisi aksi yang saat ini
+boleh diajukan: `apply`, `forward`, `rollback`, `batch` (lanjutkan batch).
+
+Eksekusi nggak punya endpoint sendiri. Alurnya:
+
+1. `POST /api/approvals {migrationId, action}`. Aksi yang melanggar urutan
+   ditolak `409` `action-not-allowed` dengan alasannya di `detail`.
+2. Leader semua group menyetujui.
+3. `POST /api/jobs {approvalId}`, balas `202` dan job ID.
+
+Item riwayat: `id` (execution ID), `action`, `revertsExecutionId` (rollback),
+`jobId`, `status` (`running`, `success`, `failed`, `partial`), `sql` yang
+dijalankan, `batchesCommitted`, `rowsCommitted`, `cursor`, `executedBy`,
+`startedAt`, `finishedAt`, dan `committed` (sudah masuk migration history).
 
 ## Contoh pakai curl
 

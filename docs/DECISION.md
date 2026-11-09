@@ -317,6 +317,12 @@ Akibat: `migration.Executor` sekarang baru mendukung `apply` dalam satu transact
 eksekusi ada. Eksekusi langsung `POST /migrations/{id}/execute` dari M1 juga masih
 ada dan melewati approval, harus dihapus waktu halaman migration pindah ke SPA.
 
+Update 9 Nov (ADR-015): `rollback`, `forward`, dan `batch` sudah didukung, dan
+halaman migration Go template beserta `POST /migrations/{id}/execute` sudah
+dihapus. Job partial sekarang bisa digantikan approval `batch` atau `rollback`.
+Kalau `resumeJobId` nggak dikirim, `queue.Service.Submit` mencari job partial
+milik migration itu sendiri.
+
 ## ADR-014 Struktur folder: fitur dan platform
 
 Status: diterima, 8 Nov
@@ -338,4 +344,73 @@ Keputusan:
 Akibat: semua import `internal/{config,httpx,obs,pgerr,store,testutil}` berubah.
 Branch yang masih jalan cukup mengganti path import itu setelah rebase. Path lama
 di ADR sebelumnya sengaja dibiarkan sebagai catatan waktu keputusan dibuat.
+
+## ADR-015 Migration up/down, riwayat eksekusi, dan mode batch
+
+Status: diterima, 9 Nov
+
+Konteks: spesifikasi M2 minta tiap migration punya SQL up dan down (atau
+irreversible beserta alasannya), rollback cuma dari migration aktif terakhir,
+forward urut, semua eksekusi tercatat, history cuma berisi yang committed dan
+nggak boleh ditimpa, plus mode batch dengan checkpoint.
+
+Keputusan:
+- `database_migrations` dapat kolom `down_sql`, `irreversible`,
+  `irreversible_reason`, `mode`, dan konfigurasi batch. Isinya cuma bisa diubah
+  selama `draft`. Mengubah draft membatalkan approval yang belum jadi job,
+  dan ditolak kalau sudah ada job yang antre atau jalan.
+- Status migration jadi posisinya di database: `draft`, `running` (apply
+  pertama), `success` (aktif), `failed`, `rolled_back`, `partial`, dan
+  `partially_reverted`. Rollback atau forward yang gagal nggak mengubah status.
+- Apply yang gagal jadi `failed` cuma kalau SQL-nya sempat dikirim ke database
+  target (`migration_executions.sql_started`). Kalau gagal sebelum itu, misalnya
+  target nggak bisa dihubungi sampai percobaan habis atau tabel batch hilang,
+  migration balik ke `draft` beserta pesan error-nya. SQL yang belum pernah
+  dieksekusi belum immutable, jadi cukup diajukan approval lagi tanpa bikin
+  migration baru. Eksekusi yang gagal tetap tercatat di riwayat.
+- Satu eksekusi (apply, forward, rollback) satu baris di `migration_executions`.
+  ID eksekusi beda dengan ID job, karena eksekusi batch bisa dikerjakan beberapa
+  job (retry atau dilanjutkan). Rollback menyimpan `reverts_execution_id`.
+- `migration_history` cuma diisi waktu eksekusi selesai dan committed. Isinya
+  salinan SQL yang dijalankan, versi, pelaksana, dan waktu. Trigger menolak
+  UPDATE dan DELETE.
+- Aturan urutan (`actionRule`): rollback cuma buat migration dengan versi
+  tertinggi yang masih berlaku dan nggak irreversible. Forward cuma buat
+  migration `rolled_back` terendah di atas yang masih berlaku. Apply ditahan
+  kalau ada migration lain yang `partial` atau `partially_reverted`.
+- Aturan itu dicek dua kali: waktu approval diajukan (hook
+  `approval.SetActionCheck`, balas 409 `action-not-allowed`) dan waktu worker
+  mengambil job (revalidasi).
+- Hide rollback memasangkan lewat execution ID: rollback sukses dan eksekusi
+  yang dibatalkannya disembunyikan. Rollback gagal dan eksekusi gagal tetap
+  terlihat. Filternya cuma di tampilan, data nggak dihapus.
+
+Mode batch:
+- User mengisi tabel, kolom kursor (wajib unik, dicek ke database target), dan
+  ukuran batch. Tiap batch, worker mengisi temp table `batch_rows` dengan row
+  berikutnya (`WHERE key > kursor ORDER BY key LIMIT ukuran`), lalu menjalankan
+  SQL up. SQL up dan down wajib memakai `batch_rows`.
+- Cakupan ditentukan sekali waktu eksekusi mulai: kunci terbesar saat itu
+  disimpan di `_dbplatform.batch_scope`. Row yang masuk belakangan nggak ikut.
+- Checkpoint (`_dbplatform.batch_checkpoints`: eksekusi, nomor batch, rentang
+  kursor, jumlah row) ditulis di database target, satu transaction dengan
+  perubahan batch-nya. Primary key (eksekusi, batch) mencegah batch yang sama
+  ke-commit dua kali. Metadata cuma menyimpan cerminnya buat tampilan.
+- Kalau opsi data pemulihan dicentang, isi row sebelum diubah disimpan sebagai
+  JSONB di `_dbplatform.batch_backup`. Waktu rollback, `batch_rows` diisi dari
+  situ, jadi SQL down bisa mengembalikan nilai persis.
+- Batch gagal: cuma transaction batch itu yang batal. Kalau sudah ada batch
+  committed, hasilnya `queue.Partial` dan migration jadi `partial`. Kegagalan
+  sementara diulang worker dan lanjut dari checkpoint.
+- Lanjutkan (`batch`) meneruskan eksekusi yang sama dari checkpoint. Rollback
+  membatalkan batch yang sudah committed urut dari batch terakhir. Kalau
+  berhenti di tengah, jadi `partially_reverted` dan rollback berikutnya
+  melanjutkan dari batch yang belum dibatalkan.
+- Bukti commit job (`queue.RecordCommit`) ditulis di transaction terakhir
+  setelah semua batch selesai. Job yang terputus di tengah diulang, dan batch
+  yang sudah ada checkpoint-nya dilewati.
+
+Akibat: database target dapat schema `_dbplatform` berisi tiga tabel tambahan.
+Data pemulihan bikin batch lebih lambat dan makan tempat, jadi opsional.
+Migration M1 yang sudah jalan ditandai irreversible karena nggak punya SQL down.
 

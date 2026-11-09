@@ -50,8 +50,14 @@ nambah koneksi di menu Koneksi, isi:
    (View Only atau View + Edit).
 5. Login sebagai user tadi. Di Databases kelihatan database yang boleh dibuka,
    lengkap dengan schema, tabel, kolom, constraint, index, dan datanya.
-6. Riwayat migration: bikin migration, tinjau SQL-nya, lalu jalankan. Kalau
-   sukses di-commit, kalau gagal di-rollback dan errornya tetap dicatat.
+6. Migration: bikin draft berisi SQL up dan SQL down (atau tandai
+   irreversible beserta alasannya), pilih mode normal atau per batch.
+7. Ajukan approval. Leader dari semua group yang punya akses ke database itu
+   harus setuju, termasuk untuk rollback dan forward.
+8. Setelah disetujui, tekan Jalankan. Job masuk queue, worker yang
+   mengeksekusi, dan progresnya kelihatan di halaman job.
+9. Riwayat eksekusi ada di halaman migration. Centang Hide rollback buat
+   menyembunyikan eksekusi yang sudah dibatalkan beserta rollback-nya.
 
 ## Hak akses
 
@@ -59,7 +65,7 @@ nambah koneksi di menu Koneksi, isi:
 |-------|----------|
 | Platform Admin | kelola user, group, koneksi, dan grant |
 | View Only | lihat schema, data, dan riwayat migration |
-| View + Edit | semua View Only, plus bikin, ubah, dan jalanin migration |
+| View + Edit | semua View Only, plus bikin dan ubah draft, ajukan approval, dan jalanin migration yang sudah disetujui |
 
 - Akses database cuma dikasih lewat group. Kalau user masuk beberapa group yang
   punya akses ke database yang sama, level tertinggi yang dipakai.
@@ -104,7 +110,36 @@ pengembang:
 |-----|----------|-------------------------------------|
 | 2.000.000 | 3,4 detik | 6,7 detik |
 
-Dataset yang sama dipakai buat menguji migration per batch.
+Dataset yang sama dipakai buat menguji migration per batch. Bikin migration
+mode batch di database target dengan tabel `orders_large`, kolom kursor `id`,
+dan ukuran batch misalnya 10000:
+
+```sql
+-- SQL up
+UPDATE orders_large o SET amount = o.amount * 1.1
+FROM batch_rows b WHERE o.id = b.id;
+
+-- SQL down (centang "Simpan data sebelum diubah")
+UPDATE orders_large o SET amount = b.amount
+FROM batch_rows b WHERE o.id = b.id;
+```
+
+`batch_rows` itu temp table berisi row satu batch yang disiapkan worker. Tiap
+batch di-commit sendiri bareng checkpoint-nya, jadi kalau berhenti di tengah,
+statusnya partial dan bisa dilanjutkan dari batch berikutnya. Detailnya di
+ADR-015.
+
+Hasil 9 November 2026 di dataset yang sama (2.000.000 row, batch 100.000, data
+pemulihan disimpan), lewat queue dan worker:
+
+| Eksekusi | Batch | Durasi |
+|----------|-------|--------|
+| apply | 20 | 33,5 detik |
+| rollback per batch | 20 | 30,9 detik |
+
+Lebih lama dari `UPDATE` sekali jalan karena tiap batch menyalin row ke
+`batch_rows` dan menyimpan isinya sebagai data pemulihan. Gantinya, tiap batch
+bisa di-commit, dilanjutkan, dan dibatalkan sendiri-sendiri.
 
 ## Struktur
 

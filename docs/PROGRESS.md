@@ -1,8 +1,27 @@
 # Progress Tubes IF3110 - Database Management Platform
 
-Terakhir diupdate: **8 November 2026** (queue dan worker Milestone 2)
+Terakhir diupdate: **9 November 2026** (migration up/down dan batch Milestone 2)
 
 Deadline Milestone 2: 27 November 2026, 13.10 WIB. Bonus kumpul cepat: 23 November 2026, 13.10 WIB.
+
+## Milestone 2: bagian Zahran (migration up/down, history, batch)
+
+- [x] SQL up dan down, atau irreversible beserta alasannya. Definisi immutable setelah dieksekusi
+- [x] ubah draft membatalkan approval lama, ditolak kalau job-nya sudah antre
+- [x] apply yang gagal sebelum SQL terkirim (target mati, tabel batch hilang) balik ke draft
+- [x] rollback cuma dari migration aktif terakhir, forward urut, nggak otomatis lanjut
+- [x] cek urutan waktu approval diajukan (hook di `approval`) dan waktu worker ambil job
+- [x] `migration_executions` buat semua eksekusi, `migration_history` append-only buat yang committed
+- [x] rollback merujuk execution ID yang dibatalkan, hide rollback pasangan lewat execution ID
+- [x] mode batch: kursor, ukuran batch, temp table `batch_rows`, cakupan ditentukan di awal
+- [x] checkpoint dan data pemulihan di database target, satu transaction dengan batch-nya
+- [x] partial, lanjutkan dari checkpoint, batalkan batch committed urut terbalik, partially reverted
+- [x] log tiap eksekusi dan batch (execution_id, job_id, attempt, batch) + span `migration.execute` dan `migration.batch`
+- [x] API JSON migration, halaman Go template migration dihapus
+- [x] halaman SPA: daftar, form draft (normal/batch), detail + ajukan approval + jalankan, riwayat + Hide rollback
+- [x] `testutil.EmptyDB` buat database target di test
+- [x] integration test migration hijau di `make test`, plus tes end-to-end server + worker
+- [x] ukur migration per batch di `orders_large` 2 juta row, catat di README
 
 ## Milestone 2: bagian Fazri (queue, worker, lock, database di SPA)
 
@@ -18,11 +37,11 @@ Deadline Milestone 2: 27 November 2026, 13.10 WIB. Bonus kumpul cepat: 23 Novemb
 - [x] trace context lewat queue, log JSON tiap attempt dan lock, SQL target masuk log
 - [x] halaman SPA job + polling, tombol Jalankan di Approval
 - [x] data uji `make seed-large`: 2 juta row, `UPDATE` tanpa batch 6,7 detik
-- [ ] uji migration per batch pakai dataset yang sama (nunggu mode batch, bagian Zahran)
+- [x] uji migration per batch pakai dataset yang sama (lihat README)
 - [ ] bonus k6
 - [ ] jalankan worker lewat docker compose (belum ada Dockerfile)
 
-Yang dibutuhkan dari bagian Zahran: lihat kontrak `queue.Executor` di ADR-013.
+Kontrak `queue.Executor` dari ADR-013 sudah diisi bagian Zahran (ADR-015).
 
 ## Pembagian Milestone 1
 
@@ -164,3 +183,6 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
   `dbmgmt` pakai `access` langsung, handler dbmgmt/admin dipecah per audiens, wiring di `server.go`
 - 8 Nov (Fazri): API + SPA dbmgmt, `internal/queue` + `cmd/worker` (ADR-013), data uji besar,
   struktur folder `internal/platform` (ADR-014)
+- 9 Nov (Zahran): SQL up/down, rollback dan forward linear, riwayat eksekusi + migration history,
+  hide rollback, mode batch dengan checkpoint (ADR-015), API + SPA migration, hapus halaman
+  Go template migration
