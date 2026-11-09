@@ -94,19 +94,26 @@ func (s *Service) CheckAction(ctx context.Context, migrationID uuid.UUID, action
 	return checkAction(ctx, s.db, m, action)
 }
 
-// AllowedActions aksi yang saat ini boleh diajukan untuk migration m.
-func (s *Service) AllowedActions(ctx context.Context, m *Migration) ([]string, error) {
+// AllowedActions aksi yang saat ini boleh diajukan untuk migration m. Kalau m
+// masih draft tapi apply-nya ditahan (misalnya ada migration lain yang
+// partial), alasannya dikembalikan di blocked supaya bisa ditampilkan.
+func (s *Service) AllowedActions(ctx context.Context, m *Migration) (allowed []string, blocked string, err error) {
 	siblings, err := listByDatabase(ctx, s.db, m.DatabaseID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	out := []string{}
+	allowed = []string{}
 	for _, a := range Actions {
-		if actionRule(m, siblings, a) == nil {
-			out = append(out, a)
+		err := actionRule(m, siblings, a)
+		var na *NotAllowedError
+		switch {
+		case err == nil:
+			allowed = append(allowed, a)
+		case a == ActionApply && m.Status == StatusDraft && errors.As(err, &na):
+			blocked = na.Reason
 		}
 	}
-	return out, nil
+	return allowed, blocked, nil
 }
 
 // History riwayat eksekusi satu database, terlama dulu. Eksekusi yang gagal

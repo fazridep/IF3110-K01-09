@@ -45,6 +45,7 @@ export interface Migration extends MigrationInput {
 export interface MigrationDetail extends Migration {
   canEdit: boolean;
   allowedActions: MigrationAction[];
+  blockedReason: string;
 }
 
 export type ExecutionStatus = "running" | "success" | "failed" | "partial";

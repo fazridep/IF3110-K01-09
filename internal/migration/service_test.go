@@ -126,7 +126,7 @@ func TestAllowedActions(t *testing.T) {
 	m := f.create(normal("CREATE TABLE a (id INT);", "DROP TABLE a;"))
 	check := func(want ...string) {
 		t.Helper()
-		got, err := f.svc.AllowedActions(ctx, f.reload(m))
+		got, _, err := f.svc.AllowedActions(ctx, f.reload(m))
 		if err != nil {
 			t.Fatal(err)
 		}

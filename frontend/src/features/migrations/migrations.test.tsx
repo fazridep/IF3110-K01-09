@@ -20,7 +20,7 @@ const migration = (over: Partial<MigrationDetail> = {}): MigrationDetail => ({
   irreversibleReason: "", mode: "normal", batch: null, status: "success", error: "", createdBy: "budi",
   createdAt: "2026-11-08T08:00:00Z", updatedAt: "2026-11-08T08:00:00Z", executedBy: "budi",
   startedAt: "2026-11-08T08:01:00Z", finishedAt: "2026-11-08T08:01:02Z", upExecutionId: "e2",
-  canEdit: true, allowedActions: ["rollback"], ...over,
+  canEdit: true, allowedActions: ["rollback"], blockedReason: "", ...over,
 });
 
 const execution = (over: Partial<Execution> = {}): Execution => ({
@@ -248,5 +248,19 @@ describe("halaman migration", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Simpan draft" }));
     expect(await screen.findByText("Ada field yang tidak dikenal.")).toBeInTheDocument();
+  });
+
+  it("draft yang ditahan menampilkan alasannya", async () => {
+    route = (url) => {
+      if (url.pathname === "/api/migrations/m1") {
+        return json(200, migration({ status: "draft", allowedActions: [], blockedReason: "v7 belum tuntas (partial), selesaikan dulu sebelum menjalankan migration baru" }));
+      }
+      if (url.pathname === "/api/databases/d1/history") return json(200, { items: [] });
+      if (url.pathname === "/api/approvals") return json(200, { items: [] });
+    };
+    renderAt("/migrations/m1");
+    expect(await screen.findByText("Draft ini belum bisa diajukan")).toBeInTheDocument();
+    expect(screen.getByText(/v7 belum tuntas \(partial\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ajukan/ })).not.toBeInTheDocument();
   });
 });

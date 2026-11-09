@@ -199,6 +199,8 @@ export default function MigrationDetailPage() {
                         <span style={{ color: "var(--muted)", fontSize: ".85rem" }}>Simpan atau batalkan perubahan draft dulu.</span>
                       )}
                     </div>
+                  ) : m.blockedReason ? (
+                    <Alert tone="warn" title="Draft ini belum bisa diajukan">{m.blockedReason}</Alert>
                   ) : (
                     <p style={{ margin: 0, color: "var(--muted)" }}>Belum ada aksi yang bisa diajukan untuk posisi migration ini.</p>
                   )

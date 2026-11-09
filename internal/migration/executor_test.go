@@ -231,6 +231,10 @@ func TestApplyDitahanSelamaMasihPartial(t *testing.T) {
 	if err := f.svc.CheckAction(ctx, b.ID, ActionApply); !errors.Is(err, ErrActionNotAllowed) {
 		t.Fatalf("migration baru harus ditahan selama ada yang partial, dapat %v", err)
 	}
+	allowed, blocked, err := f.svc.AllowedActions(ctx, b)
+	if err != nil || len(allowed) != 0 || !strings.Contains(blocked, "v1 belum tuntas") {
+		t.Fatalf("draft yang ditahan harus kasih alasan, dapat %v %q %v", allowed, blocked, err)
+	}
 }
 
 // Apply yang gagal karena target nggak bisa dihubungi sampai percobaan habis:

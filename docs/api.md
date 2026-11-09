@@ -183,7 +183,7 @@ View Only dapat `403` waktu membuat atau mengubah.
 |--------|------|------|----------|
 | `GET` | `/api/databases/{id}/migrations` | - | migration terbaru dulu |
 | `POST` | `/api/databases/{id}/migrations` | definisi (lihat bawah) | `201` draft. `400` per field, `409` `pending-exists`, `502` kalau target mati waktu cek tabel batch |
-| `GET` | `/api/migrations/{id}` | - | migration plus `canEdit` dan `allowedActions` |
+| `GET` | `/api/migrations/{id}` | - | migration plus `canEdit`, `allowedActions`, dan `blockedReason` |
 | `PUT` | `/api/migrations/{id}` | definisi | cuma draft. `409` `migration-immutable` atau `migration-busy` |
 | `GET` | `/api/databases/{id}/history?hideRollback=&migrationId=` | - | riwayat eksekusi, terlama dulu |
 
@@ -206,7 +206,9 @@ dikosongkan dan `irreversibleReason` wajib.
 
 Status migration: `draft`, `running`, `success`, `failed`, `rolled_back`,
 `partial`, `partially_reverted`. `allowedActions` berisi aksi yang saat ini
-boleh diajukan: `apply`, `forward`, `rollback`, `batch` (lanjutkan batch).
+boleh diajukan: `apply`, `forward`, `rollback`, `batch` (lanjutkan batch). Kalau
+draft belum bisa di-apply (misalnya ada migration lain yang partial),
+`blockedReason` berisi alasannya.
 
 Eksekusi nggak punya endpoint sendiri. Alurnya:
 

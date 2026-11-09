@@ -84,6 +84,8 @@ type migrationDetailJSON struct {
 	CanEdit bool `json:"canEdit"`
 	// AllowedActions aksi yang saat ini boleh diajukan approval-nya.
 	AllowedActions []string `json:"allowedActions"`
+	// BlockedReason alasan draft ini belum bisa diajukan apply.
+	BlockedReason string `json:"blockedReason"`
 }
 
 func toMigrationJSON(m *Migration) migrationJSON {
@@ -203,12 +205,12 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	actions, err := h.svc.AllowedActions(r.Context(), m)
+	actions, blocked, err := h.svc.AllowedActions(r.Context(), m)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, migrationDetailJSON{migrationJSON: toMigrationJSON(m), CanEdit: canEdit, AllowedActions: actions})
+	httpx.JSON(w, http.StatusOK, migrationDetailJSON{migrationJSON: toMigrationJSON(m), CanEdit: canEdit, AllowedActions: actions, BlockedReason: blocked})
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
