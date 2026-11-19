@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
@@ -65,6 +63,7 @@ func (e *Executor) Execute(ctx context.Context, job queue.Job, report queue.Repo
 
 	if err != nil {
 		obs.Warn(ctx, "migration.execute.result", "eksekusi migration gagal", obs.KeyStatus, "error", "error", err.Error())
+		e.svc.recordFailedAttempt(ctx, x, job, err)
 	} else {
 		obs.Info(ctx, "migration.execute.result", "eksekusi migration selesai", obs.KeyStatus, "ok")
 	}
@@ -85,6 +84,29 @@ func publicError(err error) error {
 		return queue.Public(strings.ToUpper(msg[:1])+msg[1:], err)
 	}
 	return err
+}
+
+// recordFailedAttempt mencatat attempt yang nggak berakhir sukses ke migration
+// history (spesifikasi v4). Attempt sukses dicatat Finalize, satu transaction
+// dengan status eksekusinya, termasuk yang baru terbukti sukses lewat Verify.
+// Duplikat job yang ditolak bukti commit bukan attempt baru, jadi dilewati.
+func (s *Service) recordFailedAttempt(ctx context.Context, x *Execution, job queue.Job, err error) {
+	if errors.Is(err, queue.ErrAlreadyCommitted) {
+		return
+	}
+	status := AttemptFailed
+	switch {
+	case queue.IsPartial(err):
+		status = AttemptPartial
+	case queue.IsUncertain(err), ctx.Err() != nil:
+		// Worker berhenti atau COMMIT terputus: hasilnya diperiksa ulang nanti.
+		status = AttemptUncertain
+	}
+	rec := attemptRecord{jobID: job.ID, attempt: job.Attempt, userID: job.CreatedBy,
+		status: status, err: queue.PublicMessage(err), at: s.now()}
+	if ierr := insertHistory(context.WithoutCancel(ctx), s.db, x.ID, rec); ierr != nil {
+		obs.Error(ctx, "migration.history_failed", "gagal mencatat attempt ke migration history", ierr)
+	}
 }
 
 // startExecution membuat eksekusi baru atau melanjutkan yang sudah ada, dalam
@@ -269,10 +291,10 @@ func (e *Executor) Finalize(ctx context.Context, job queue.Job, status queue.Sta
 			status = queue.StatusPartial
 		}
 	}
-	return e.svc.finishExecution(ctx, x, status, errText)
+	return e.svc.finishExecution(ctx, x, job, status, errText)
 }
 
-func (s *Service) finishExecution(ctx context.Context, x *Execution, status queue.Status, errText string) error {
+func (s *Service) finishExecution(ctx context.Context, x *Execution, job queue.Job, status queue.Status, errText string) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("migration: begin finalisasi: %w", err)
@@ -299,7 +321,8 @@ func (s *Service) finishExecution(ctx context.Context, x *Execution, status queu
 			WHERE id=$1`, x.ID, at); err != nil {
 			return fmt.Errorf("migration: simpan eksekusi: %w", err)
 		}
-		if err := insertHistory(ctx, tx, x.ID, at); err != nil {
+		rec := attemptRecord{jobID: job.ID, attempt: job.Attempt, userID: job.CreatedBy, status: AttemptSuccess, at: at}
+		if err := insertHistory(ctx, tx, x.ID, rec); err != nil {
 			return err
 		}
 		if x.down() {
@@ -356,22 +379,4 @@ func (s *Service) finishExecution(ctx context.Context, x *Execution, status queu
 		return fmt.Errorf("migration: simpan status migration: %w", err)
 	}
 	return tx.Commit(ctx)
-}
-
-// insertHistory menyalin eksekusi yang sudah committed ke migration_history.
-// ON CONFLICT supaya Finalize yang dipanggil ulang nggak bikin baris kedua.
-func insertHistory(ctx context.Context, tx pgx.Tx, executionID uuid.UUID, at time.Time) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO migration_history (execution_id, migration_id, database_id, version, action,
-			reverts_execution_id, sql_text, mode, batches, rows_affected, executed_by, started_at, committed_at)
-		SELECT x.id, x.migration_id, x.database_id, m.version, x.action, x.reverts_execution_id,
-			x.sql_text, x.mode, x.batches_committed, x.rows_committed, x.executed_by, x.started_at, $2
-		FROM migration_executions x
-		JOIN database_migrations m ON m.id = x.migration_id
-		WHERE x.id = $1
-		ON CONFLICT (execution_id) DO NOTHING`, executionID, at)
-	if err != nil {
-		return fmt.Errorf("migration: catat history: %w", err)
-	}
-	return nil
 }

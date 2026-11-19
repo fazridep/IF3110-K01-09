@@ -118,31 +118,48 @@ func toMigrationJSON(m *Migration) migrationJSON {
 }
 
 type executionJSON struct {
-	ID                 uuid.UUID  `json:"id"`
-	MigrationID        uuid.UUID  `json:"migrationId"`
-	Version            int        `json:"version"`
-	Description        string     `json:"description"`
-	Action             string     `json:"action"`
-	RevertsExecutionID *uuid.UUID `json:"revertsExecutionId"`
-	JobID              uuid.UUID  `json:"jobId"`
-	Status             ExecStatus `json:"status"`
-	SQL                string     `json:"sql"`
-	Mode               Mode       `json:"mode"`
-	BatchSize          int        `json:"batchSize"`
-	BatchesCommitted   int64      `json:"batchesCommitted"`
-	RowsCommitted      int64      `json:"rowsCommitted"`
-	Cursor             string     `json:"cursor"`
-	Error              string     `json:"error"`
-	ExecutedBy         string     `json:"executedBy"`
-	StartedAt          time.Time  `json:"startedAt"`
-	FinishedAt         *time.Time `json:"finishedAt"`
-	Committed          bool       `json:"committed"`
-	CommittedAt        *time.Time `json:"committedAt"`
+	ID                 uuid.UUID     `json:"id"`
+	MigrationID        uuid.UUID     `json:"migrationId"`
+	Version            int           `json:"version"`
+	Description        string        `json:"description"`
+	Action             string        `json:"action"`
+	RevertsExecutionID *uuid.UUID    `json:"revertsExecutionId"`
+	JobID              uuid.UUID     `json:"jobId"`
+	Status             ExecStatus    `json:"status"`
+	SQL                string        `json:"sql"`
+	Mode               Mode          `json:"mode"`
+	BatchSize          int           `json:"batchSize"`
+	BatchesCommitted   int64         `json:"batchesCommitted"`
+	RowsCommitted      int64         `json:"rowsCommitted"`
+	Cursor             string        `json:"cursor"`
+	Error              string        `json:"error"`
+	ExecutedBy         string        `json:"executedBy"`
+	StartedAt          time.Time     `json:"startedAt"`
+	FinishedAt         *time.Time    `json:"finishedAt"`
+	Committed          bool          `json:"committed"`
+	CommittedAt        *time.Time    `json:"committedAt"`
+	Attempts           []attemptJSON `json:"attempts"`
+}
+
+type attemptJSON struct {
+	JobID            uuid.UUID     `json:"jobId"`
+	Attempt          int           `json:"attempt"`
+	Status           AttemptStatus `json:"status"`
+	Error            string        `json:"error"`
+	BatchesCommitted int64         `json:"batchesCommitted"`
+	RowsCommitted    int64         `json:"rowsCommitted"`
+	ExecutedBy       string        `json:"executedBy"`
+	FinishedAt       time.Time     `json:"finishedAt"`
 }
 
 func toExecutionJSON(e Execution) executionJSON {
+	attempts := make([]attemptJSON, 0, len(e.Attempts))
+	for _, a := range e.Attempts {
+		attempts = append(attempts, attemptJSON{a.JobID, a.Attempt, a.Status, a.Error, a.Batches, a.Rows, a.ExecutedBy, a.FinishedAt})
+	}
 	return executionJSON{
-		ID: e.ID, MigrationID: e.MigrationID, Version: e.Version, Description: e.Description,
+		Attempts: attempts,
+		ID:       e.ID, MigrationID: e.MigrationID, Version: e.Version, Description: e.Description,
 		Action: e.Action, RevertsExecutionID: e.RevertsExecutionID, JobID: e.JobID, Status: e.Status,
 		SQL: e.SQL, Mode: e.Mode, BatchSize: e.BatchSize, BatchesCommitted: e.Batches,
 		RowsCommitted: e.Rows, Cursor: e.Cursor, Error: e.Error, ExecutedBy: e.ExecutedBy,

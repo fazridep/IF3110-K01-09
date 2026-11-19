@@ -186,3 +186,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 9 Nov (Zahran): SQL up/down, rollback dan forward linear, riwayat eksekusi + migration history,
   hide rollback, mode batch dengan checkpoint (ADR-015), API + SPA migration, hapus halaman
   Go template migration
+- 19 Nov (Fazri): sesuaikan spesifikasi v4: migration history mencatat semua attempt (berhasil
+  maupun gagal), forward boleh dari migration gagal, actor di log worker

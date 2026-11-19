@@ -35,7 +35,7 @@ function explain(m: MigrationDetail): { tone: "warn" | "danger" | "info"; text: 
     case "partially_reverted":
       return { tone: "warn", text: "Pembatalan batch berhenti di tengah. Ajukan Rollback lagi untuk melanjutkan dari checkpoint." };
     case "failed":
-      return { tone: "danger", text: "Eksekusi gagal dan sudah di-rollback. SQL migration nggak bisa diubah, buat migration baru untuk perbaikan." };
+      return { tone: "danger", text: "Eksekusi gagal dan transaction-nya sudah dibatalkan. SQL migration nggak bisa diubah. Ajukan Forward untuk menjalankan SQL up yang sama lagi setelah penyebabnya dibereskan, atau buat migration baru untuk perbaikan." };
     case "rolled_back":
       return { tone: "info", text: "Perubahan migration ini sudah dibatalkan. Forward menjalankan SQL up yang sama lagi." };
     default:

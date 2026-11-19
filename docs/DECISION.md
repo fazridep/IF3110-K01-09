@@ -414,3 +414,24 @@ Akibat: database target dapat schema `_dbplatform` berisi tiga tabel tambahan.
 Data pemulihan bikin batch lebih lambat dan makan tempat, jadi opsional.
 Migration M1 yang sudah jalan ditandai irreversible karena nggak punya SQL down.
 
+Update 19 Nov (spesifikasi v4, revisi 16 Nov): migration history sekarang
+mencatat semua attempt, berhasil maupun gagal, bukan cuma eksekusi yang
+committed. Dua poin di atas diganti:
+- `migration_history` jadi satu baris per attempt job (migration `0404`), dengan
+  `job_id`, `attempt`, `status` (`success`, `failed`, `partial`, `uncertain`),
+  `error`, salinan SQL, versi, pelaksana (pembuat job), dan waktu. Tetap
+  append-only lewat trigger. Unique `(job_id, attempt, status)` mencegah
+  Finalize yang dipanggil ulang menulis baris kedua.
+- Attempt yang nggak sukses dicatat `Executor.Execute` begitu SQL-nya selesai
+  dicoba. Attempt sukses dicatat `Finalize` satu transaction dengan status
+  eksekusinya, termasuk yang baru terbukti sukses lewat `Verify`. Revalidasi
+  yang gagal sebelum eksekusi dibuat nggak dicatat, karena belum ada SQL yang
+  dijalankan.
+- `Execution.Committed` sekarang berarti ada attempt sukses.
+- Forward juga boleh untuk migration `failed` ("attempt gagal boleh di-forward
+  lagi"). SQL-nya tetap yang sama, dan urutan linear tetap berlaku: kalau versi
+  di atasnya sudah aktif, forward ditolak.
+
+Log worker juga membawa `actor` dan `actor_id` (pembuat job), karena worker
+nggak punya request login.
+

@@ -71,7 +71,7 @@ func TestDuplikatNggakDoubleCommit(t *testing.T) {
 	}
 }
 
-func TestSQLGagalDiRollbackDanNggakMasukHistory(t *testing.T) {
+func TestSQLGagalDiRollbackTapiTetapMasukHistory(t *testing.T) {
 	f := newFixture(t)
 	m := f.create(normal(`CREATE TABLE nggak_jadi (id INT); SELECT * FROM tabel_nggak_ada;`, `DROP TABLE nggak_jadi;`))
 
@@ -86,15 +86,28 @@ func TestSQLGagalDiRollbackDanNggakMasukHistory(t *testing.T) {
 	if got.Status != StatusFailed || got.Error == "" {
 		t.Fatalf("mau failed dengan pesan, dapat %+v", got)
 	}
-	if f.historyRows() != 0 {
-		t.Fatal("eksekusi gagal nggak masuk migration history")
+	// Spesifikasi v4: attempt gagal tetap tercatat lengkap di migration history.
+	var (
+		status, sqlText, errText string
+		version, attempt         int
+		executedBy               string
+	)
+	err = f.meta.QueryRow(context.Background(), `
+		SELECT h.status, h.sql_text, h.error, h.version, h.attempt, u.username
+		FROM migration_history h JOIN users u ON u.id = h.executed_by`).
+		Scan(&status, &sqlText, &errText, &version, &attempt, &executedBy)
+	if err != nil {
+		t.Fatalf("attempt gagal harus ada di migration_history: %v", err)
 	}
-	// Tapi tetap terlihat di riwayat eksekusi.
+	if status != "failed" || sqlText != m.UpSQL || version != m.Version || attempt != 1 ||
+		executedBy != "editor" || !strings.Contains(errText, "tabel_nggak_ada") {
+		t.Fatalf("isi attempt gagal salah: %s %q %q v%d #%d %s", status, sqlText, errText, version, attempt, executedBy)
+	}
 	h := f.history(true)
-	if len(h) != 1 || h[0].Status != ExecFailed || h[0].Committed {
-		t.Fatalf("eksekusi gagal harus terlihat, dapat %+v", h)
+	if len(h) != 1 || h[0].Status != ExecFailed || h[0].Committed || len(h[0].Attempts) != 1 {
+		t.Fatalf("eksekusi gagal harus terlihat beserta attempt-nya, dapat %+v", h)
 	}
-	// Perbaikannya migration baru.
+	// Perbaikannya boleh migration baru.
 	if _, err := f.svc.Create(context.Background(), f.editor, f.dbID, normal(`CREATE TABLE nggak_jadi (id INT);`, `DROP TABLE nggak_jadi;`)); err != nil {
 		t.Fatal(err)
 	}
@@ -194,8 +207,8 @@ func TestRollbackGagalNggakMengubahPosisi(t *testing.T) {
 	if got := f.reload(m); got.Status != StatusSuccess || !f.tableExists("tetap") {
 		t.Fatalf("posisi aktif tetap, dapat %s", got.Status)
 	}
-	if f.historyRows() != 1 {
-		t.Fatal("rollback gagal nggak masuk history")
+	if f.historyRows() != 2 {
+		t.Fatalf("apply sukses dan rollback gagal sama-sama tercatat, dapat %d", f.historyRows())
 	}
 	h := f.history(true)
 	if len(h) != 2 || h[1].Action != ActionRollback || h[1].Status != ExecFailed {
@@ -288,5 +301,76 @@ func TestRollbackTargetMatiTetapAktif(t *testing.T) {
 	up()
 	if got := f.reload(m); got.Status != StatusSuccess {
 		t.Fatalf("mau tetap success, dapat %s", got.Status)
+	}
+}
+
+// Spesifikasi v4: attempt gagal boleh di-forward lagi. SQL-nya tetap yang sama
+// (immutable), jadi forward berhasil kalau penyebabnya sudah dibereskan.
+func TestForwardSetelahApplyGagal(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	m := f.create(normal(`INSERT INTO pelanggan VALUES (1);`, `DELETE FROM pelanggan WHERE id = 1;`))
+
+	if err := f.run(m, ActionApply); err == nil {
+		t.Fatal("apply harus gagal karena tabelnya belum ada")
+	}
+	if got := f.reload(m); got.Status != StatusFailed {
+		t.Fatalf("mau failed, dapat %s", got.Status)
+	}
+	if _, err := f.svc.Update(ctx, f.editor, m.ID, normal(`SELECT 1;`, `SELECT 1;`)); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("SQL yang pernah dieksekusi nggak boleh diubah, dapat %v", err)
+	}
+	if err := f.svc.CheckAction(ctx, m.ID, ActionForward); err != nil {
+		t.Fatalf("migration gagal harus boleh di-forward: %v", err)
+	}
+
+	f.targetExec(`CREATE TABLE pelanggan (id INT)`)
+	f.mustRun(m, ActionForward)
+	if got := f.reload(m); got.Status != StatusSuccess {
+		t.Fatalf("forward sukses harus jadi success, dapat %s", got.Status)
+	}
+	h := f.history(false)
+	if len(h) != 2 || h[0].Status != ExecFailed || h[1].Action != ActionForward || !h[1].Committed {
+		t.Fatalf("mau apply gagal lalu forward sukses, dapat %+v", h)
+	}
+	if f.historyRows() != 2 {
+		t.Fatalf("dua attempt harus tercatat, dapat %d", f.historyRows())
+	}
+}
+
+// Retry di dalam satu eksekusi: tiap attempt jadi satu baris history.
+func TestRetryTiapAttemptTercatat(t *testing.T) {
+	f := newFixture(t)
+	m := f.create(normal(`CREATE TABLE setelah_retry (id INT);`, `DROP TABLE setelah_retry;`))
+	job := f.job(m, ActionApply)
+
+	up := f.targetDown()
+	if err := f.exec.Execute(context.Background(), job, nil); !queue.IsTransient(err) {
+		t.Fatalf("attempt 1 mau gagal sementara, dapat %v", err)
+	}
+	up()
+	job.Attempt = 2
+	if err := f.runJob(job); err != nil {
+		t.Fatal(err)
+	}
+
+	h := f.history(false)
+	if len(h) != 1 || len(h[0].Attempts) != 2 {
+		t.Fatalf("mau satu eksekusi dengan dua attempt, dapat %+v", h)
+	}
+	a1, a2 := h[0].Attempts[0], h[0].Attempts[1]
+	if a1.Attempt != 1 || a1.Status != AttemptFailed || a1.Error != "Database target nggak bisa dihubungi." {
+		t.Fatalf("attempt 1 salah: %+v", a1)
+	}
+	if a2.Attempt != 2 || a2.Status != AttemptSuccess || a2.ExecutedBy != "editor" {
+		t.Fatalf("attempt 2 salah: %+v", a2)
+	}
+
+	// Finalize yang dipanggil ulang nggak menambah baris.
+	if err := f.exec.Finalize(context.Background(), job, queue.StatusSuccess, ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.historyRows() != 2 {
+		t.Fatalf("Finalize ulang nggak boleh menambah baris, dapat %d", f.historyRows())
 	}
 }

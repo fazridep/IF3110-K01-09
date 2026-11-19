@@ -147,8 +147,10 @@ func TestBatchPartialLaluDilanjutkan(t *testing.T) {
 	if f.amount(5) != "5.35" || f.amount(11) != "11.00" {
 		t.Fatal("batch 1 committed, batch 2 di-rollback")
 	}
-	if f.historyRows() != 0 {
-		t.Fatal("eksekusi partial belum masuk history")
+	// Spesifikasi v4: attempt partial tetap tercatat di migration history.
+	if h := f.history(false); len(h) != 1 || len(h[0].Attempts) != 1 || h[0].Attempts[0].Status != AttemptPartial ||
+		h[0].Attempts[0].Batches != 1 || h[0].Committed {
+		t.Fatalf("attempt partial harus tercatat dengan progresnya, dapat %+v", h)
 	}
 
 	// Row yang masuk setelah eksekusi mulai di luar cakupan.

@@ -116,8 +116,8 @@ func (s *Service) AllowedActions(ctx context.Context, m *Migration) (allowed []s
 	return allowed, blocked, nil
 }
 
-// History riwayat eksekusi satu database, terlama dulu. Eksekusi yang gagal
-// tetap muncul. Dengan HideRollback, pasangan eksekusi yang dibatalkan dan
+// History riwayat eksekusi satu database, terlama dulu, beserta semua attempt-nya
+// dari migration_history. Eksekusi dan attempt yang gagal tetap muncul. Dengan HideRollback, pasangan eksekusi yang dibatalkan dan
 // rollback sukses yang membatalkannya disembunyikan.
 func (s *Service) History(ctx context.Context, userID, databaseID uuid.UUID, f HistoryFilter) ([]Execution, error) {
 	if err := s.requireView(ctx, userID, databaseID); err != nil {
@@ -126,6 +126,17 @@ func (s *Service) History(ctx context.Context, userID, databaseID uuid.UUID, f H
 	list, err := listExecutions(ctx, s.db, databaseID, f)
 	if err != nil {
 		return nil, err
+	}
+	ids := make([]uuid.UUID, len(list))
+	for i := range list {
+		ids[i] = list[i].ID
+	}
+	attempts, err := listAttempts(ctx, s.db, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		list[i].Attempts = attempts[list[i].ID]
 	}
 	if f.HideRollback {
 		list = hideRolledBack(list)
@@ -185,14 +196,15 @@ func actionRule(m *Migration, siblings []Migration, action string) error {
 		return nil
 
 	case ActionForward:
-		if m.Status != StatusRolledBack {
-			return notAllowed("forward cuma buat migration yang sudah di-rollback")
+		// Spesifikasi: attempt gagal boleh di-forward lagi, selain yang di-rollback.
+		if m.Status != StatusRolledBack && m.Status != StatusFailed {
+			return notAllowed("forward cuma buat migration yang sudah di-rollback atau gagal")
 		}
 		if top > m.Version {
 			return notAllowed(fmt.Sprintf("v%d masih aktif di atasnya, forward harus mengikuti urutan", top))
 		}
 		for _, o := range siblings {
-			if o.Status == StatusRolledBack && o.Version > top && o.Version < m.Version {
+			if (o.Status == StatusRolledBack || o.Status == StatusFailed) && o.Version > top && o.Version < m.Version {
 				return notAllowed(fmt.Sprintf("forward harus urut, jalankan forward v%d dulu", o.Version))
 			}
 		}

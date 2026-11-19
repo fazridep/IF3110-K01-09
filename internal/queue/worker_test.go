@@ -1,11 +1,16 @@
 package queue
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 	"github.com/if3110/tubes-db-platform/internal/platform/testutil"
 )
 
@@ -435,4 +441,58 @@ func TestBuktiCommit(t *testing.T) {
 	if err := RecordCommit(ctx, tx, id); !errors.Is(err, ErrAlreadyCommitted) {
 		t.Fatalf("mau ErrAlreadyCommitted, dapat %v", err)
 	}
+}
+
+// Spesifikasi minta atribut actor di log. Worker nggak punya user login, jadi
+// actor-nya pembuat job, dan harus ikut di log Executor juga.
+func TestWorkerLogMembawaActor(t *testing.T) {
+	var buf syncBuffer
+	prev := slog.Default()
+	slog.SetDefault(obs.NewLogger(&buf, slog.LevelInfo))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	f := newFixture(t)
+	exec := &fakeExecutor{execute: func(ctx context.Context, _ Job, _ Reporter) error {
+		obs.Info(ctx, "uji.executor", "log dari executor")
+		return nil
+	}}
+	id := f.enqueue(t, f.database(t))
+	stop := startWorker(t, f, exec, fastConfig)
+	waitStatus(t, f, id, StatusSuccess)
+	stop()
+
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil || rec[obs.KeyJobID] != id.String() {
+			continue
+		}
+		event, _ := rec[obs.KeyEvent].(string)
+		if rec[obs.KeyActor] != "pemilik" || rec[obs.KeyActorID] != f.user.String() {
+			t.Fatalf("log %s tanpa actor: %s", event, line)
+		}
+		seen[event] = true
+	}
+	for _, event := range []string{"job.claimed", "job.attempt.start", "uji.executor", "job.finished"} {
+		if !seen[event] {
+			t.Errorf("event %s nggak ketemu di log", event)
+		}
+	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
