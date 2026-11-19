@@ -44,6 +44,7 @@ export default function TablePage() {
               <EmptyState title="Tabel ini kosong" />
             ) : (
               <DataTable
+                stack={false}
                 caption={`Isi tabel ${d.table}`}
                 rows={d.rows.rows.map((cells, i) => ({ i, cells }))}
                 rowKey={(r) => String(r.i)}
