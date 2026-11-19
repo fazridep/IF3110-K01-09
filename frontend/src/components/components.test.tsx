@@ -43,7 +43,8 @@ describe("QueryState", () => {
       .mockResolvedValueOnce(["ok"]);
     renderQ(fn);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("request id: r1");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Terjadi kesalahan di server");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("r1");
     await userEvent.setup().click(screen.getByRole("button", { name: "Coba lagi" }));
     expect(await screen.findByText("isi: ok")).toBeInTheDocument();
   });

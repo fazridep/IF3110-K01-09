@@ -37,7 +37,6 @@ export function ErrorState({ error, onRetry, title, description, code, actions }
       </div>
       <h3>{title ?? problem?.title ?? "Gagal memuat data"}</h3>
       <p>{description ?? (error ? errorMessage(error) : null)}</p>
-      {problem?.requestId && <span className="meta">request id: {problem.requestId}</span>}
       {(onRetry || actions) && (
         <div className="actions">
           {onRetry && (
@@ -60,15 +59,13 @@ interface AlertProps {
 }
 
 export function Alert({ tone = "info", title, children, error }: AlertProps) {
-  const problem = error instanceof ApiError ? error.problem : undefined;
   const isError = tone === "danger";
   return (
     <div className={`alert tone-${tone}`} role={isError ? "alert" : "status"}>
       <div>
         {title && <span className="alert-title">{title}</span>}
         {children ?? (error ? errorMessage(error) : null)}
-        {problem?.requestId && <span className="meta">request id: {problem.requestId}</span>}
-      </div>
+        </div>
     </div>
   );
 }
