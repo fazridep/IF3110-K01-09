@@ -108,6 +108,52 @@ Test frontend (Vitest + Testing Library):
 make frontend-test
 ```
 
+Test end-to-end lewat browser (Playwright, Chromium):
+
+```bash
+cd frontend && npx playwright install chromium   # sekali saja
+make e2e
+```
+
+`scripts/e2e.sh` membuat database metadata dan target kosong di container
+`db-test`, menjalankan server dan worker dari kode sekarang, lalu menjalankan
+`frontend/e2e`. Skenarionya mengikuti alur minimum spesifikasi:
+
+- admin membuat koneksi, user, dan dua group yang masing-masing punya leader
+- explorer menampilkan schema, tabel, dan data (termasuk NULL)
+- migration diajukan, disetujui leader kedua group, masuk queue, dan
+  dijalankan worker
+- apply yang gagal tercatat di riwayat, lalu di-forward setelah penyebabnya
+  dibereskan, di-rollback, dan Hide rollback menyembunyikan pasangannya
+- leader dengan akses View Only nggak bisa mengajukan perubahan (`403`)
+- halaman utama nggak melebar di layar 390px
+
+Setelah itu log JSON-nya diperiksa: tiap event worker punya `actor`, trace dari
+API nyambung ke worker, SQL ke database target tercatat, dan password nggak
+pernah muncul. Laporan dan trace kegagalan ada di `frontend/playwright-report`.
+
+## Audit log
+
+Audit log berupa structured log JSON ke stdout dari server dan worker, bukan
+tabel di database. Bagian Activity Logging spesifikasi menyebut log "tidak
+disimpan di database platform". Jejak perubahan database yang harus persisten
+sudah ada di migration history, yang append-only dan mencatat setiap attempt.
+Detailnya di ADR-016.
+
+| Area | Event |
+|------|-------|
+| Login dan session | `auth.login`, `auth.logout`, `auth.session_invalid`, `auth.csrf_rejected` |
+| Admin | `admin.user_created`, `admin.user_admin_updated`, `admin.user_active_updated`, `admin.group_created`, `admin.group_updated`, `admin.group_deleted`, `admin.group_leader_set`, `admin.member_added`, `admin.member_removed`, `admin.grant_set`, `admin.grant_revoked` |
+| Koneksi database | `connection.created`, `connection.updated`, `connection.deleted`, `connection.test_failed` |
+| Approval | `approval.submitted`, `approval.approved`, `approval.rejected` |
+| Migration | `migration.created`, `migration.updated`, `migration.execute.start`, `migration.execute.result`, `migration.commit`, `migration.rollback`, `migration.batch.commit`, `migration.batch.rollback` |
+| Queue dan worker | `job.enqueued`, `job.claimed`, `job.attempt.start`, `job.attempt.end`, `job.retry`, `job.verified`, `job.finished`, `lock.acquired`, `lock.released`, `lock.expired` |
+| SQL | `sql.start` dan `sql.end` untuk setiap query ke database target, termasuk yang read-only |
+
+Tiap event membawa `actor`, `trace_id`, dan `request_id` (di worker: `job_id`
+dan `execution_id`). Contoh dan cara mencocokkan log dengan span ada di
+[docs/observability.md](docs/observability.md).
+
 ## Data uji migration besar
 
 `make seed-large` membuat tabel `orders_large` di database target lalu mengukur

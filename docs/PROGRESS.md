@@ -188,3 +188,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
   Go template migration
 - 19 Nov (Fazri): sesuaikan spesifikasi v4: migration history mencatat semua attempt (berhasil
   maupun gagal), forward boleh dari migration gagal, actor di log worker
+- 19 Nov (Fazri): asumsi audit log (ADR-016), test end-to-end Playwright (`make e2e`)
+

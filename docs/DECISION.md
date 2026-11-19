@@ -435,3 +435,28 @@ committed. Dua poin di atas diganti:
 Log worker juga membawa `actor` dan `actor_id` (pembuat job), karena worker
 nggak punya request login.
 
+## ADR-016 Audit log berupa structured log, bukan tabel
+
+Status: diterima, 19 Nov. Bisa berubah kalau Q&A menjawab lain.
+
+Konteks: alur minimum spesifikasi diakhiri "Audit Log", tapi spesifikasi nggak
+menjelaskan bentuknya. Bagian Activity Logging minta "catat aktivitas penting
+dan setiap eksekusi SQL" dan menegaskan "Log tidak disimpan di database
+platform dan tidak wajib ditampilkan melalui SPA". Bagian Hide rollback menyebut
+"filter tidak menghapus data riwayat maupun audit log".
+
+Keputusan:
+- Audit log adalah structured log JSON (`log/slog`) dari server dan worker ke
+  stdout. Nggak ada tabel `audit_logs`, supaya nggak bertentangan dengan aturan
+  log di atas.
+- Jejak perubahan database yang harus persisten ada di `migration_history`
+  (append-only, tiap attempt: siapa, kapan, SQL apa, statusnya).
+- Semua aksi yang mengubah data punya event sendiri dengan `actor`, `trace_id`,
+  dan `request_id` atau `job_id`. Daftar event-nya di README bagian Audit log.
+- Kalimat di Hide rollback cukup dibaca sebagai "filter cuma di tampilan".
+
+Akibat: audit log bisa dicari lewat log (grep, atau backend log terpusat kalau
+bonus observability dikerjakan), bukan lewat SPA. Kalau asisten menjawab audit
+log wajib di database, cukup tambah tabel `audit_logs` dan tulis ke situ dari
+titik-titik event yang sama.
+
