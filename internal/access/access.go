@@ -41,7 +41,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 }
 
 // IsPlatformAdmin mengecek apakah user adalah Platform Admin.
-// Nilainya diambil dari auth.User yang sudah di-set middleware auth.RequireLogin.
+// Nilainya diambil dari auth.User yang sudah di-set middleware auth.RequireAPILogin.
 func IsPlatformAdmin(ctx context.Context) bool {
 	u := auth.CurrentUser(ctx)
 	return u != nil && u.IsPlatformAdmin

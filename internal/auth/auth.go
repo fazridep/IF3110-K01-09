@@ -41,7 +41,7 @@ func withUser(ctx context.Context, u *User) context.Context {
 }
 
 // WithUser menaruh user di context. Dipakai test yang memanggil handler
-// langsung, tanpa lewat middleware RequireLogin.
+// langsung, tanpa lewat middleware RequireAPILogin.
 func WithUser(ctx context.Context, u *User) context.Context {
 	return withUser(ctx, u)
 }

@@ -24,7 +24,6 @@ func NewHandler(db *pgxpool.Pool, store *Store) *Handler {
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/session", h.Login)
 	mux.HandleFunc("DELETE /api/session", h.Logout)
-	mux.HandleFunc("POST /logout", h.logoutForm)
 }
 
 func (h *Handler) RegisterAPIRoutes(mux *http.ServeMux) {
@@ -104,13 +103,6 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.NoContent(w)
-}
-
-func (h *Handler) logoutForm(w http.ResponseWriter, r *http.Request) {
-	if !h.revokeCurrent(w, r) {
-		return
-	}
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (h *Handler) revokeCurrent(w http.ResponseWriter, r *http.Request) bool {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -172,20 +171,6 @@ func TestLogout(t *testing.T) {
 	}
 }
 
-func TestLogoutForm(t *testing.T) {
-	h, _ := newTestHandler(t)
-	createUser(t, h.db, "budi", "rahasia")
-	sid := sessionCookie(postLogin(h, "budi", "rahasia"))
-
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(sid)
-	rr := httptest.NewRecorder()
-	h.logoutForm(rr, req)
-	if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/login" {
-		t.Fatalf("logout dari form lama harus redirect ke /login, dapat %d %q", rr.Code, rr.Header().Get("Location"))
-	}
-}
-
 func serveAPI(h *Handler, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
@@ -238,54 +223,6 @@ func TestAPISendsRotatedCookie(t *testing.T) {
 	clock.advance(testSessionConfig.GracePeriod + time.Second)
 	if _, err := h.store.Validate(context.Background(), rotated.Value); err != nil {
 		t.Fatalf("token baru harus tetap berlaku: %v", err)
-	}
-}
-
-func TestRequireLogin(t *testing.T) {
-	h, clock := newTestHandler(t)
-	createUser(t, h.db, "budi", "rahasia")
-	sid := sessionCookie(postLogin(h, "budi", "rahasia"))
-
-	var gotUser *User
-	protected := h.store.RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUser = CurrentUser(r.Context())
-	}))
-	serve := func(target string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, target, nil)
-		for _, c := range cookies {
-			req.AddCookie(c)
-		}
-		rr := httptest.NewRecorder()
-		protected.ServeHTTP(rr, req)
-		return rr
-	}
-
-	if rr := serve("/"); rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/login" {
-		t.Errorf("tanpa cookie harus redirect ke /login, dapat %d %q", rr.Code, rr.Header().Get("Location"))
-	}
-	if loc := serve("/databases?page=2").Header().Get("Location"); loc != "/login?next=%2Fdatabases%3Fpage%3D2" {
-		t.Errorf("redirect harus bawa next, dapat %q", loc)
-	}
-	evil := httptest.NewRequest(http.MethodGet, "/", nil)
-	evil.URL = &url.URL{Path: "//evil.example/x"}
-	evilRR := httptest.NewRecorder()
-	protected.ServeHTTP(evilRR, evil)
-	if loc := evilRR.Header().Get("Location"); loc != "/login" {
-		t.Errorf("next ke host lain harus dibuang, dapat %q", loc)
-	}
-
-	serve("/", sid)
-	if gotUser == nil || gotUser.Username != "budi" {
-		t.Fatalf("user harus ada di context, dapat %+v", gotUser)
-	}
-
-	clock.advance(testSessionConfig.IdleTimeout + time.Second)
-	rr := serve("/", sid)
-	if rr.Code != http.StatusSeeOther {
-		t.Errorf("session idle harus redirect ke login, dapat %d", rr.Code)
-	}
-	if c := sessionCookie(rr); c == nil || c.MaxAge >= 0 {
-		t.Error("cookie session yang expired harus dihapus")
 	}
 }
 

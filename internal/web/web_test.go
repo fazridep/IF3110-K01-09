@@ -127,11 +127,6 @@ func newTestRouter(t *testing.T) (*client, *auth.Store) {
 				httpx.JSON(w, http.StatusOK, httpx.NewList([]string{auth.CurrentUser(r.Context()).Username}))
 			})
 		},
-		RegisterPages: func(mux *http.ServeMux) {
-			mux.HandleFunc("GET /legacy", func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte("halaman lama " + auth.CurrentUser(r.Context()).Username))
-			})
-		},
 		SPA: NewSPA(testDist),
 	})
 	return &client{t: t, h: h, cookies: map[string]*http.Cookie{}}, sessions
@@ -164,9 +159,6 @@ func TestRouterLoginFlow(t *testing.T) {
 	if rr := c.do(http.MethodGet, "/api/me", ""); rr.Code != http.StatusUnauthorized || problemType(t, rr) != "urn:problem:unauthenticated" {
 		t.Fatalf("GET /api/me tanpa login harus 401, dapat %d", rr.Code)
 	}
-	if rr := c.do(http.MethodGet, "/legacy", ""); rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/login?next=%2Flegacy" {
-		t.Fatalf("halaman lama tanpa login harus redirect, dapat %d %q", rr.Code, rr.Header().Get("Location"))
-	}
 
 	rr = c.do(http.MethodPost, "/api/session", `{"username":"budi","password":"rahasia"}`)
 	if rr.Code != http.StatusCreated || c.cookies["sid"] == nil {
@@ -179,11 +171,8 @@ func TestRouterLoginFlow(t *testing.T) {
 	if rr := c.do(http.MethodGet, "/api/items", ""); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"items":["budi"]}` {
 		t.Fatalf("route dari RegisterAPI harus dapat user: %d %s", rr.Code, rr.Body.String())
 	}
-	if rr := c.do(http.MethodGet, "/legacy", ""); rr.Body.String() != "halaman lama budi" {
-		t.Fatalf("halaman lama harus tetap jalan: %q", rr.Body.String())
-	}
 	if rr := c.do(http.MethodGet, "/databases/1", ""); !strings.Contains(rr.Body.String(), `id="root"`) {
-		t.Fatal("path yang bukan API/halaman lama harus dapat SPA")
+		t.Fatal("path yang bukan API harus dapat SPA")
 	}
 
 	if rr := c.do(http.MethodDelete, "/api/session", ""); rr.Code != http.StatusNoContent {

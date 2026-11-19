@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -132,13 +130,7 @@ func (s *Store) ForceRotate(ctx context.Context, userID uuid.UUID) error {
 	return err
 }
 
-// RequireLogin buat halaman Go template lama, RequireAPILogin buat /api/*.
-func (s *Store) RequireLogin(next http.Handler) http.Handler {
-	return s.requireLogin(next, func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, loginURL(r), http.StatusSeeOther)
-	})
-}
-
+// RequireAPILogin membalas 401 JSON kalau belum login atau session sudah habis.
 func (s *Store) RequireAPILogin(next http.Handler) http.Handler {
 	return s.requireLogin(next, func(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, http.StatusUnauthorized, httpx.CodeUnauthenticated, "Session tidak ada atau sudah berakhir. Silakan login lagi.")
@@ -181,15 +173,6 @@ func sessionStatus(err error) string {
 	default:
 		return "not_found"
 	}
-}
-
-// loginURL cuma ngisi next dengan path lokal biar nggak jadi open redirect.
-func loginURL(r *http.Request) string {
-	p := r.URL.RequestURI()
-	if r.Method != http.MethodGet || p == "/" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") {
-		return "/login"
-	}
-	return "/login?next=" + url.QueryEscape(p)
 }
 
 func isSessionError(err error) bool {

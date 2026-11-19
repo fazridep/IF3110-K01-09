@@ -13,13 +13,12 @@ type Options struct {
 	Sessions *auth.Store
 	Auth     *auth.Handler
 
-	RegisterAPI   func(*http.ServeMux)
-	RegisterPages func(*http.ServeMux)
-	SPA           http.Handler
-	Secure        bool
+	RegisterAPI func(*http.ServeMux)
+	SPA         http.Handler
+	Secure      bool
 }
 
-// NewRouter ngecek urut route publik, /api/*, halaman lama, lalu SPA.
+// NewRouter ngecek urut route publik, /api/*, lalu SPA.
 func NewRouter(o Options) http.Handler {
 	public := http.NewServeMux()
 	o.Auth.RegisterRoutes(public)
@@ -33,12 +32,6 @@ func NewRouter(o Options) http.Handler {
 		o.RegisterAPI(api)
 	}
 	apiHandler := o.Sessions.RequireAPILogin(api)
-
-	pages := http.NewServeMux()
-	if o.RegisterPages != nil {
-		o.RegisterPages(pages)
-	}
-	pagesHandler := o.Sessions.RequireLogin(pages)
 
 	spa := o.SPA
 	if spa == nil {
@@ -59,11 +52,6 @@ func NewRouter(o Options) http.Handler {
 			}
 			obs.SetRoute(r.Context(), pattern)
 			apiHandler.ServeHTTP(w, r)
-			return
-		}
-		if _, pattern := pages.Handler(r); pattern != "" {
-			obs.SetRoute(r.Context(), pattern)
-			pagesHandler.ServeHTTP(w, r)
 			return
 		}
 		obs.SetRoute(r.Context(), "SPA")
