@@ -28,7 +28,9 @@ const execution = (over: Partial<Execution> = {}): Execution => ({
   revertsExecutionId: null, jobId: "j1aaaaaaaa", status: "success", sql: "CREATE TABLE produk (id INT);",
   mode: "normal", batchSize: 0, batchesCommitted: 0, rowsCommitted: 0, cursor: "", error: "",
   executedBy: "budi", startedAt: "2026-11-08T08:01:00Z", finishedAt: "2026-11-08T08:01:02Z",
-  committed: true, committedAt: "2026-11-08T08:01:02Z", ...over,
+  committed: true, committedAt: "2026-11-08T08:01:02Z",
+  attempts: [{ jobId: "j1aaaaaaaa", attempt: 1, status: "success", error: "", batchesCommitted: 0, rowsCommitted: 0, executedBy: "budi", finishedAt: "2026-11-08T08:01:02Z" }],
+  ...over,
 });
 
 type Route = (url: URL, init?: RequestInit) => Response | undefined;
@@ -262,5 +264,28 @@ describe("halaman migration", () => {
     expect(await screen.findByText("Draft ini belum bisa diajukan")).toBeInTheDocument();
     expect(screen.getByText(/v7 belum tuntas \(partial\)/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ajukan/ })).not.toBeInTheDocument();
+  });
+
+  it("migration gagal: semua attempt tampil dan bisa diajukan forward", async () => {
+    const failed = execution({
+      status: "failed",
+      committed: false,
+      committedAt: null,
+      attempts: [
+        { jobId: "j1aaaaaaaa", attempt: 1, status: "failed", error: "Database target nggak bisa dihubungi.", batchesCommitted: 0, rowsCommitted: 0, executedBy: "budi", finishedAt: "2026-11-08T08:01:00Z" },
+        { jobId: "j1aaaaaaaa", attempt: 2, status: "failed", error: 'ERROR: relation "pelanggan" does not exist (SQLSTATE 42P01)', batchesCommitted: 0, rowsCommitted: 0, executedBy: "budi", finishedAt: "2026-11-08T08:01:05Z" },
+      ],
+    });
+    route = (url) => {
+      if (url.pathname === "/api/migrations/m1") return json(200, migration({ status: "failed", allowedActions: ["forward"] }));
+      if (url.pathname === "/api/databases/d1/history") return json(200, { items: [failed] });
+      if (url.pathname === "/api/approvals") return json(200, { items: [] });
+    };
+    renderAt("/migrations/m1");
+    expect(await screen.findByText(/Ajukan Forward untuk menjalankan SQL up yang sama lagi/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ajukan Forward" })).toBeInTheDocument();
+    expect(await screen.findByText("#1")).toBeInTheDocument();
+    expect(screen.getByText("#2")).toBeInTheDocument();
+    expect(screen.getByText("Database target nggak bisa dihubungi.")).toBeInTheDocument();
   });
 });

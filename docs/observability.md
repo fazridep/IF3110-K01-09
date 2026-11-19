@@ -74,6 +74,9 @@ Event worker: `lock.acquired`, `lock.released`, `lock.expired`, `lock.lost`,
 `job.attempt.end` (ada `duration_ms`), `job.retry`, `job.verified`,
 `job.progress`, `job.finished`.
 
+Di worker, `actor` dan `actor_id` diisi pembuat job, jadi log eksekusi dan SQL
+target tetap tahu siapa yang meminta.
+
 Semua SQL ke database target masuk log level info (`sql.start`, `sql.end`).
 Query metadata di server level debug, dan polling worker nggak dicatat supaya
 log nggak penuh.

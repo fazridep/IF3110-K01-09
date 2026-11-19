@@ -50,6 +50,20 @@ export interface MigrationDetail extends Migration {
 
 export type ExecutionStatus = "running" | "success" | "failed" | "partial";
 
+export type AttemptStatus = "success" | "failed" | "partial" | "uncertain";
+
+/** Satu baris migration history: satu percobaan job untuk satu eksekusi. */
+export interface Attempt {
+  jobId: string;
+  attempt: number;
+  status: AttemptStatus;
+  error: string;
+  batchesCommitted: number;
+  rowsCommitted: number;
+  executedBy: string;
+  finishedAt: string;
+}
+
 export interface Execution {
   id: string;
   migrationId: string;
@@ -71,6 +85,7 @@ export interface Execution {
   finishedAt: string | null;
   committed: boolean;
   committedAt: string | null;
+  attempts: Attempt[];
 }
 
 export const emptyInput: MigrationInput = {

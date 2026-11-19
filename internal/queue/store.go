@@ -201,8 +201,9 @@ func (s *Store) Claim(ctx context.Context, workerID string, ttl time.Duration) (
 	}
 	defer tx.Rollback(ctx)
 
+	var actor string
 	j, err := scanJob(tx.QueryRow(ctx, `
-		SELECT `+jobColumns+`
+		SELECT `+jobColumns+`, (SELECT username FROM users WHERE id = j.created_by)
 		FROM migration_jobs j
 		WHERE (j.status = 'queued' OR (j.status = 'uncertain' AND j.verify_attempts < j.max_attempts))
 		  AND j.run_after <= now()
@@ -215,7 +216,7 @@ func (s *Store) Claim(ctx context.Context, workerID string, ttl time.Duration) (
 			  AND o.status IN ('queued', 'running', 'uncertain', 'partial'))
 		ORDER BY j.seq
 		LIMIT 1
-		FOR UPDATE OF j SKIP LOCKED`))
+		FOR UPDATE OF j SKIP LOCKED`), &actor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -223,6 +224,7 @@ func (s *Store) Claim(ctx context.Context, workerID string, ttl time.Duration) (
 		return nil, fmt.Errorf("queue: cari job: %w", err)
 	}
 
+	j.CreatedByName = actor
 	j.leaseToken = uuid.New()
 	j.WorkerID = workerID
 	tag, err := tx.Exec(ctx, `

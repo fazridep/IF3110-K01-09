@@ -62,7 +62,9 @@ func TestActionRuleLainnya(t *testing.T) {
 		{"partial bisa dilanjutkan", partial, []Migration{partial}, ActionResume, true},
 		{"partial bisa dibatalkan", partial, []Migration{partial}, ActionRollback, true},
 		{"normal nggak bisa dilanjutkan", mig(1, StatusPartial), nil, ActionResume, false},
-		{"failed nggak bisa forward", failed, []Migration{failed}, ActionForward, false},
+		{"failed bisa forward lagi", failed, []Migration{failed}, ActionForward, true},
+		{"failed nggak bisa forward kalau versi di atasnya aktif", failed, []Migration{failed, mig(2, StatusSuccess)}, ActionForward, false},
+		{"failed nggak bisa rollback", failed, []Migration{failed}, ActionRollback, false},
 		{"aksi asing", draft, nil, "hapus", false},
 	}
 	for _, tc := range cases {

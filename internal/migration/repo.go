@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -144,11 +145,15 @@ const selectExecution = `
 	SELECT x.id, x.migration_id, x.database_id, m.version, m.description, x.action,
 		x.reverts_execution_id, x.job_id, x.status, x.sql_text, x.mode, x.batch_size,
 		x.batches_committed, x.rows_committed, x.last_cursor, x.error, x.sql_started, u.username,
-		x.started_at, x.finished_at, h.seq IS NOT NULL, h.committed_at
+		x.started_at, x.finished_at, h.finished_at IS NOT NULL, h.finished_at
 	FROM migration_executions x
 	JOIN database_migrations m ON m.id = x.migration_id
 	JOIN users u ON u.id = x.executed_by
-	LEFT JOIN migration_history h ON h.execution_id = x.id`
+	LEFT JOIN LATERAL (
+		SELECT finished_at FROM migration_history
+		WHERE execution_id = x.id AND status = 'success'
+		LIMIT 1
+	) h ON true`
 
 func scanExecution(row pgx.Row) (*Execution, error) {
 	e := &Execution{}
@@ -267,4 +272,63 @@ func listExecutions(ctx context.Context, q querier, databaseID uuid.UUID, f Hist
 		list = append(list, *e)
 	}
 	return list, rows.Err()
+}
+
+// insertHistory menambah satu baris attempt ke migration_history. Pelaksana
+// attempt adalah pembuat job-nya, bukan pembuat eksekusi pertama.
+func insertHistory(ctx context.Context, q querier, executionID uuid.UUID, a attemptRecord) error {
+	_, err := q.Exec(ctx, `
+		INSERT INTO migration_history (execution_id, migration_id, database_id, version, action,
+			reverts_execution_id, sql_text, mode, batches, rows_affected, executed_by, started_at,
+			finished_at, job_id, attempt, status, error)
+		SELECT x.id, x.migration_id, x.database_id, m.version, x.action, x.reverts_execution_id,
+			x.sql_text, x.mode, x.batches_committed, x.rows_committed, $2, x.started_at,
+			$3, $4, $5, $6, $7
+		FROM migration_executions x
+		JOIN database_migrations m ON m.id = x.migration_id
+		WHERE x.id = $1
+		ON CONFLICT (job_id, attempt, status) DO NOTHING`,
+		executionID, a.userID, a.at, a.jobID, a.attempt, a.status, a.err)
+	if err != nil {
+		return fmt.Errorf("migration: catat history: %w", err)
+	}
+	return nil
+}
+
+type attemptRecord struct {
+	jobID   uuid.UUID
+	attempt int
+	userID  uuid.UUID
+	status  AttemptStatus
+	err     string
+	at      time.Time
+}
+
+// listAttempts mengambil attempt dari migration_history untuk eksekusi-eksekusi ini.
+func listAttempts(ctx context.Context, q querier, executionIDs []uuid.UUID) (map[uuid.UUID][]Attempt, error) {
+	out := map[uuid.UUID][]Attempt{}
+	if len(executionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := q.Query(ctx, `
+		SELECT h.execution_id, h.job_id, h.attempt, h.status, h.error, h.batches, h.rows_affected,
+			u.username, h.finished_at
+		FROM migration_history h
+		JOIN users u ON u.id = h.executed_by
+		WHERE h.execution_id = ANY($1)
+		ORDER BY h.seq`, executionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("migration: daftar attempt: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var execID uuid.UUID
+		var a Attempt
+		if err := rows.Scan(&execID, &a.JobID, &a.Attempt, &a.Status, &a.Error, &a.Batches, &a.Rows,
+			&a.ExecutedBy, &a.FinishedAt); err != nil {
+			return nil, fmt.Errorf("migration: baca attempt: %w", err)
+		}
+		out[execID] = append(out[execID], a)
+	}
+	return out, rows.Err()
 }

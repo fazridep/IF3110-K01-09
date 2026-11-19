@@ -220,7 +220,12 @@ Eksekusi nggak punya endpoint sendiri. Alurnya:
 Item riwayat: `id` (execution ID), `action`, `revertsExecutionId` (rollback),
 `jobId`, `status` (`running`, `success`, `failed`, `partial`), `sql` yang
 dijalankan, `batchesCommitted`, `rowsCommitted`, `cursor`, `executedBy`,
-`startedAt`, `finishedAt`, dan `committed` (sudah masuk migration history).
+`startedAt`, `finishedAt`, `committed` (ada attempt sukses), dan `attempts`.
+
+`attempts` isi migration history eksekusi itu, satu item per percobaan job,
+termasuk yang gagal: `jobId`, `attempt`, `status` (`success`, `failed`,
+`partial`, `uncertain`), `error`, `batchesCommitted`, `rowsCommitted`,
+`executedBy`, `finishedAt`.
 
 ## Contoh pakai curl
 

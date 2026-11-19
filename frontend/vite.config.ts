@@ -20,6 +20,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // e2e/ dijalankan Playwright lewat scripts/e2e.sh, bukan Vitest.
+    include: ["src/**/*.test.{ts,tsx}"],
     css: false,
   },
 });

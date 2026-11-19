@@ -122,8 +122,31 @@ const (
 	ExecPartial ExecStatus = "partial"
 )
 
+// AttemptStatus hasil satu attempt job di migration_history.
+type AttemptStatus string
+
+const (
+	AttemptSuccess   AttemptStatus = "success"
+	AttemptFailed    AttemptStatus = "failed"
+	AttemptPartial   AttemptStatus = "partial"
+	AttemptUncertain AttemptStatus = "uncertain"
+)
+
+// Attempt satu baris migration_history: satu percobaan job untuk satu eksekusi.
+type Attempt struct {
+	JobID      uuid.UUID
+	Attempt    int
+	Status     AttemptStatus
+	Error      string
+	Batches    int64
+	Rows       int64
+	ExecutedBy string
+	FinishedAt time.Time
+}
+
 // Execution satu kali menjalankan SQL up (apply, forward) atau down (rollback).
-// Committed berarti eksekusinya sudah masuk migration_history.
+// Committed berarti ada attempt sukses di migration_history. Attempts terisi
+// waktu dibaca lewat History.
 type Execution struct {
 	ID                 uuid.UUID
 	MigrationID        uuid.UUID
@@ -147,6 +170,7 @@ type Execution struct {
 	FinishedAt         *time.Time
 	Committed          bool
 	CommittedAt        *time.Time
+	Attempts           []Attempt
 }
 
 func (e *Execution) down() bool { return e.Action == ActionRollback }

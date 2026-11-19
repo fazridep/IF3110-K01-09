@@ -124,7 +124,10 @@ func (w *Worker) process(parent context.Context, job *Job, claimStart time.Time)
 
 	// Trace dari request API yang memasukkan job ini.
 	ctx := obs.ExtractTrace(parent, job.traceContext)
+	// Worker nggak punya request login, jadi actor diambil dari pembuat job.
 	ctx = obs.WithAttrs(ctx,
+		obs.KeyActor, job.CreatedByName,
+		obs.KeyActorID, job.CreatedBy.String(),
 		obs.KeyJobID, job.ID.String(),
 		obs.KeyMigrationID, job.MigrationID.String(),
 		"database_id", job.DatabaseID.String(),

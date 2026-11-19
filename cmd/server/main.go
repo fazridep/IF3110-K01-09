@@ -65,21 +65,37 @@ func runSeedAdmin(cfg *config.Config) {
 	db := mustOpenDB(cfg.MetadataDBURL)
 	defer db.Close()
 
+	in := bufio.NewReader(os.Stdin)
 	fmt.Print("Username admin: ")
-	username, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	username, _ := in.ReadString('\n')
 	username = strings.TrimSpace(username)
 	fmt.Print("Password: ")
-	password, err := term.ReadPassword(int(syscall.Stdin))
+	password, err := readPassword(in)
 	fmt.Println()
 	if err != nil {
 		log.Fatalf("seed-admin: baca password: %v", err)
 	}
 
-	id, err := auth.SeedAdmin(context.Background(), db, username, string(password))
+	id, err := auth.SeedAdmin(context.Background(), db, username, password)
 	if err != nil {
 		log.Fatalf("seed-admin: %v", err)
 	}
 	log.Printf("seed-admin: admin %s dibuat (id %s)", username, id)
+}
+
+// readPassword menyembunyikan ketikan di terminal. Kalau stdin bukan terminal
+// (dipipe, misalnya dari scripts/e2e.sh), password dibaca sebagai satu baris.
+func readPassword(in *bufio.Reader) (string, error) {
+	fd := int(syscall.Stdin)
+	if term.IsTerminal(fd) {
+		b, err := term.ReadPassword(fd)
+		return string(b), err
+	}
+	line, err := in.ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }
 
 func mustOpenDB(url string, configure ...func(*pgxpool.Config)) *pgxpool.Pool {

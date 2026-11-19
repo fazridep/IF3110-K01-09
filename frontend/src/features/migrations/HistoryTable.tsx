@@ -10,8 +10,7 @@ interface Props {
   showMigration?: boolean;
 }
 
-// Riwayat eksekusi. Yang masuk migration history (committed) ditandai, yang
-// gagal tetap ditampilkan.
+// Riwayat eksekusi beserta semua attempt-nya. Attempt yang gagal tetap tampil.
 export function HistoryTable({ items, showMigration = true }: Props) {
   return (
     <DataTable
@@ -50,12 +49,27 @@ export function HistoryTable({ items, showMigration = true }: Props) {
         {
           header: "Status",
           className: "nowrap",
-          cell: (e) => (
-            <div style={{ display: "grid", gap: ".2rem" }}>
-              <StatusBadge status={e.status} />
-              {e.committed && <span style={{ fontSize: ".75rem", color: "var(--muted)" }}>tercatat di history</span>}
-            </div>
-          ),
+          cell: (e) => <StatusBadge status={e.status} />,
+        },
+        {
+          header: "Percobaan",
+          cell: (e) =>
+            e.attempts.length === 0 ? (
+              <span style={{ color: "var(--muted)" }}>—</span>
+            ) : (
+              <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: ".35rem" }}>
+                {e.attempts.map((a) => (
+                  <li key={`${a.jobId}-${a.attempt}-${a.status}`} style={{ display: "grid", gap: ".15rem" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: ".35rem", flexWrap: "wrap" }}>
+                      <span className="chip">#{a.attempt}</span>
+                      <StatusBadge status={a.status} />
+                      <span style={{ fontSize: ".75rem", color: "var(--muted)" }}>{formatDateTime(a.finishedAt)}</span>
+                    </span>
+                    {a.error && <span style={{ fontSize: ".75rem", color: "var(--muted)", overflowWrap: "anywhere" }}>{a.error}</span>}
+                  </li>
+                ))}
+              </ol>
+            ),
         },
         {
           header: "Batch / row",
