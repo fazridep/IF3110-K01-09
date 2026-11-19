@@ -27,8 +27,6 @@ Test: `make frontend-test`. Cek tipe: `cd frontend && npm run typecheck`.
 ## Info penting
 
 - Menu yang halamannya belum jadi cuma nampilin "On progress implementasi".
-- Halaman Go template lama masih jalan selama transisi. Bukanya langsung
-  lewat URL di http://localhost:8080, misal `/databases` atau `/admin/users`.
 - Login pakai cookie `sid` HttpOnly. Jangan simpan token atau data sensitif
   di `localStorage`.
 - Semua request ke backend lewat `api()` di `src/lib/api.ts`, jangan `fetch`
@@ -96,8 +94,6 @@ Langkahnya:
    tampilkan lewat `QueryState` (loading, error, kosong).
 3. Daftarkan route di `src/app/router.tsx`, lalu ubah `ready: true` di
    `src/layout/nav.ts`.
-4. Hapus route Go template lama fitur itu dari `RegisterPages` di
-   `cmd/server/server.go`, plus template-nya di `internal/web/templates/`.
 
 Contoh route:
 

@@ -1,18 +1,19 @@
 # Database Management Platform
 
-Tugas Besar IF3110 Milestone 1, kelompok K01-09.
+Tugas Besar IF3110 Milestone 1 dan 2, kelompok K01-09.
 
 Platform buat ngatur akses ke database PostgreSQL bersama. Platform Admin
 ngatur user, group, koneksi database, dan grant. User lain bisa lihat schema
 dan data, lalu bikin dan jalanin migration sesuai level aksesnya. Semua
 migration tercatat di riwayat per database.
 
-Backend Go, tampilan pakai `html/template` + Pico.css (bukan SPA), database
-PostgreSQL 18.
+Backend dan worker Go, frontend SPA React + Vite yang bicara ke backend lewat
+API JSON, database PostgreSQL 18.
 
 ## Kebutuhan
 
 - Go 1.26
+- Node.js 22+ dan npm
 - Docker dengan Docker Compose
 
 ## Menjalankan
@@ -23,6 +24,8 @@ cp .env.example .env
 make db-up        # postgres metadata (5435) dan target (5436)
 make migrate      # bikin tabel platform
 make seed         # bikin akun Platform Admin pertama
+make frontend-install
+make frontend-build
 make run          # http://localhost:8080
 make worker       # terminal lain, yang menjalankan job migration
 ```
@@ -99,6 +102,12 @@ make test
 Kalau cuma mau unit test tanpa database, jalankan `go test ./...`. Integration
 test otomatis di-skip kalau `TEST_DATABASE_URL` kosong.
 
+Test frontend (Vitest + Testing Library):
+
+```bash
+make frontend-test
+```
+
 ## Data uji migration besar
 
 `make seed-large` membuat tabel `orders_large` di database target lalu mengukur
@@ -155,7 +164,7 @@ internal/              kode backend
   dbmgmt/              koneksi database target dan viewer
   migration/           migration database target
   queue/               job queue, worker, lock per database, retry, pemulihan
-  web/                 router, penyaji SPA, template yang belum pindah ke SPA
+  web/                 router API dan penyaji SPA
   platform/            pondasi tanpa logika fitur, nggak boleh import fitur
     config/ httpx/ obs/ pgerr/ store/ testutil/
 migrations/metadata/   SQL tabel platform
@@ -167,5 +176,7 @@ docs/                  keputusan desain, API, frontend, observability, progress
 
 - [Progress dan pembagian tugas](docs/PROGRESS.md)
 - [Konvensi dan daftar API](docs/api.md)
+- [Frontend SPA](docs/frontend.md)
+- [Logging dan tracing, contoh output log dan span](docs/observability.md)
 - [Keputusan desain](docs/DECISION.md)
 - [Aturan migration metadata](migrations/README.md)
