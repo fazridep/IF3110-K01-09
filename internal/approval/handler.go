@@ -239,8 +239,10 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		httpx.NotFound(w, r, "Permintaan approval tidak ditemukan.")
 	case errors.Is(err, ErrNotLeader), errors.Is(err, ErrForbidden):
 		httpx.Fail(w, r, http.StatusForbidden, httpx.CodeForbidden, "Hanya Leader dari group yang memiliki akses ke database ini yang boleh menyetujui.")
-	case errors.Is(err, ErrAlreadyResolved), errors.Is(err, ErrAlreadyDecided):
-		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, err.Error())
+	case errors.Is(err, ErrAlreadyResolved):
+		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, "Permintaan approval sudah selesai diproses.")
+	case errors.Is(err, ErrAlreadyDecided):
+		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, "Group yang kamu pimpin sudah memberikan keputusan untuk permintaan ini.")
 	case err != nil:
 		httpx.ServerError(w, r, err)
 	default:
@@ -293,7 +295,7 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ErrNotLeader), errors.Is(err, ErrForbidden):
 		httpx.Fail(w, r, http.StatusForbidden, httpx.CodeForbidden, "Hanya Leader dari group yang memiliki akses ke database ini yang boleh menolak.")
 	case errors.Is(err, ErrAlreadyResolved):
-		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, err.Error())
+		httpx.Fail(w, r, http.StatusConflict, httpx.CodeConflict, "Permintaan approval sudah selesai diproses.")
 	case err != nil:
 		httpx.ServerError(w, r, err)
 	default:

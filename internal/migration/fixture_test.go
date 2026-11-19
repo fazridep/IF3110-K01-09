@@ -153,9 +153,9 @@ func (f *fixture) runJob(job queue.Job) error {
 	switch {
 	case err == nil, errors.Is(err, queue.ErrAlreadyCommitted):
 	case queue.IsPartial(err):
-		status, errText = queue.StatusPartial, err.Error()
+		status, errText = queue.StatusPartial, queue.PublicMessage(err)
 	default:
-		status, errText = queue.StatusFailed, err.Error()
+		status, errText = queue.StatusFailed, queue.PublicMessage(err)
 	}
 	if ferr := f.exec.Finalize(ctx, job, status, errText); ferr != nil {
 		f.t.Fatal(ferr)

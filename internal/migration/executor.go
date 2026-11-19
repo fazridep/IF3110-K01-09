@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +69,21 @@ func (e *Executor) Execute(ctx context.Context, job queue.Job, report queue.Repo
 		obs.Info(ctx, "migration.execute.result", "eksekusi migration selesai", obs.KeyStatus, "ok")
 	}
 	obs.End(span, err)
+	return publicError(err)
+}
+
+// publicError menandai error domain migration supaya pesannya ditampilkan ke user.
+func publicError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrTargetUnavailable):
+		return queue.Public("Database target nggak bisa dihubungi.", err)
+	case errors.Is(err, ErrInvalidBatch), errors.Is(err, ErrActionNotAllowed),
+		errors.Is(err, ErrNotTransactional), errors.Is(err, ErrEmptySQL):
+		msg := strings.ReplaceAll(err.Error(), "migration: ", "")
+		return queue.Public(strings.ToUpper(msg[:1])+msg[1:], err)
+	}
 	return err
 }
 

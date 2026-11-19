@@ -229,7 +229,7 @@ func (w *Worker) verify(ctx context.Context, job *Job, lost *atomic.Bool) (execu
 		obs.Warn(ctx, "job.verify_failed", "belum bisa memeriksa hasil job", "error", verifyErr.Error(), "verify_attempts", job.VerifyAttempts)
 		return false, w.conclude(ctx, job, transition{
 			status:  StatusUncertain,
-			errText: "Belum bisa memeriksa hasil job: " + verifyErr.Error(),
+			errText: "Belum bisa memeriksa hasil job. " + PublicMessage(verifyErr),
 			delay:   w.backoff(job.VerifyAttempts),
 		})
 	}
@@ -256,17 +256,17 @@ func (w *Worker) classify(parent context.Context, job *Job, err error) transitio
 	case err == nil, errors.Is(err, ErrAlreadyCommitted):
 		return transition{status: StatusSuccess, terminal: true}
 	case errors.As(err, &partial):
-		return transition{status: StatusPartial, errText: err.Error(), terminal: true}
+		return transition{status: StatusPartial, errText: "Berhenti di tengah, batch yang sudah committed tetap tersimpan. " + PublicMessage(err), terminal: true}
 	case errors.As(err, &uncertain):
-		return transition{status: StatusUncertain, errText: err.Error(), delay: w.backoff(job.VerifyAttempts + 1)}
+		return transition{status: StatusUncertain, errText: PublicMessage(err), delay: w.backoff(job.VerifyAttempts + 1)}
 	case parent.Err() != nil:
 		// Worker dimatikan di tengah jalan, bisa saja pas lagi COMMIT.
 		return transition{status: StatusUncertain, errText: "Worker berhenti di tengah eksekusi, hasilnya sedang diperiksa."}
 	case IsTransient(err) && job.Attempt < job.MaxAttempts:
 		obs.Warn(parent, "job.retry", "kegagalan sementara, job diulang", obs.KeyAttempt, job.Attempt, "error", err.Error())
-		return transition{status: StatusQueued, errText: err.Error(), delay: w.backoff(job.Attempt)}
+		return transition{status: StatusQueued, errText: PublicMessage(err), delay: w.backoff(job.Attempt)}
 	default:
-		return transition{status: StatusFailed, errText: err.Error(), terminal: true}
+		return transition{status: StatusFailed, errText: PublicMessage(err), terminal: true}
 	}
 }
 

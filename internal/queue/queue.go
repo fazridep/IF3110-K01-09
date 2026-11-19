@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -142,4 +143,44 @@ func IsTransient(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &connErr) || errors.As(err, &netErr) ||
 		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+type publicError struct {
+	msg string
+	err error
+}
+
+func (e *publicError) Error() string     { return e.err.Error() }
+func (e *publicError) Unwrap() error     { return e.err }
+func Public(msg string, err error) error { return &publicError{msg, err} }
+
+const (
+	msgTargetDown = "Database target nggak bisa dihubungi."
+	msgUncertain  = "Hasil COMMIT belum pasti, worker memeriksa bukti eksekusi sebelum mengulang."
+	msgInternal   = "Eksekusi gagal karena kesalahan di server. Detailnya ada di log worker."
+)
+
+func PublicMessage(err error) string {
+	var pe *publicError
+	var pgErr *pgconn.PgError
+	var connErr *pgconn.ConnectError
+	var netErr net.Error
+	switch {
+	case err == nil:
+		return ""
+	case errors.As(err, &pe):
+		return pe.msg
+	case IsUncertain(err):
+		return msgUncertain
+	case errors.As(err, &connErr), errors.As(err, &netErr):
+		return msgTargetDown
+	case errors.As(err, &pgErr):
+		if transientSQLStates[pgErr.Code] || strings.HasPrefix(pgErr.Code, "28") || pgErr.Code == "3D000" {
+			return msgTargetDown
+		}
+		return pgErr.Error()
+	case IsTransient(err):
+		return msgTargetDown
+	}
+	return msgInternal
 }

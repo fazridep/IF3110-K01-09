@@ -254,8 +254,8 @@ func TestApplyTargetMatiBalikKeDraft(t *testing.T) {
 	up()
 
 	got := f.reload(m)
-	if got.Status != StatusDraft || !strings.Contains(got.Error, "connection refused") || got.ExecutedBy != "" || got.StartedAt != nil {
-		t.Fatalf("mau balik ke draft dengan pesan error, dapat %+v", got)
+	if got.Status != StatusDraft || got.Error != "Database target nggak bisa dihubungi." || got.ExecutedBy != "" || got.StartedAt != nil {
+		t.Fatalf("mau balik ke draft dengan pesan error tanpa detail koneksi, dapat %+v", got)
 	}
 	h := f.history(false)
 	if len(h) != 1 || h[0].Status != ExecFailed || h[0].SQLStarted || h[0].Committed {
