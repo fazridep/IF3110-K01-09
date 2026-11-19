@@ -15,6 +15,11 @@ export function safeNext(next: string | null): string | null {
   return next;
 }
 
+export function nextFor(next: string | null, user: { isPlatformAdmin: boolean }): string | null {
+  if (!next || (next.startsWith("/admin") && !user.isPlatformAdmin)) return null;
+  return next;
+}
+
 export default function LoginPage() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
@@ -30,16 +35,16 @@ export default function LoginPage() {
     document.title = "Login · DB Platform";
   }, []);
 
-  if (user && !submitting) return <Navigate to={next ?? "/"} replace />;
+  if (user && !submitting) return <Navigate to={nextFor(next, user) ?? "/"} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
-      if (next) {
-        window.location.assign(next);
+      const target = nextFor(next, await login(username.trim(), password));
+      if (target) {
+        window.location.assign(target);
         return;
       }
       navigate("/", { replace: true });

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiError, api, setUnauthorizedHandler } from "../../lib/api";
 
@@ -11,6 +11,7 @@ export interface User {
 interface AuthState {
   user: User | null;
   loading: boolean;
+  loggedOut: boolean;
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
 }
@@ -35,6 +36,7 @@ function clearUserData(qc: QueryClient) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const me = useQuery({ queryKey: meQueryKey, queryFn: fetchMe, staleTime: 60_000, retry: 1 });
+  const loggedOut = useRef(false);
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
@@ -50,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: { username, password },
         skipAuthRedirect: true,
       });
+      loggedOut.current = false;
       clearUserData(qc);
       qc.setQueryData(meQueryKey, user);
       return user;
@@ -61,13 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api("/api/session", { method: "DELETE", skipAuthRedirect: true });
     } finally {
+      loggedOut.current = true;
       clearUserData(qc);
       qc.setQueryData(meQueryKey, null);
     }
   }, [qc]);
 
   const value = useMemo<AuthState>(
-    () => ({ user: me.data ?? null, loading: me.isPending, login, logout }),
+    () => ({ user: me.data ?? null, loading: me.isPending, loggedOut: loggedOut.current, login, logout }),
     [me.data, me.isPending, login, logout],
   );
 

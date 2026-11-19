@@ -5,7 +5,7 @@ import { ErrorState } from "../../components/States";
 import { Skeleton } from "../../components/Skeleton";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, loggedOut } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -20,7 +20,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }
   if (!user) {
     const next = location.pathname + location.search;
-    const to = next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`;
+    const to = next === "/" || loggedOut ? "/login" : `/login?next=${encodeURIComponent(next)}`;
     return <Navigate to={to} replace />;
   }
   return <>{children}</>;

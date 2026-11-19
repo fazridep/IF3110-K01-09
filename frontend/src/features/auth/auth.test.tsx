@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { AuthProvider } from "./AuthContext";
+import { AuthProvider, useAuth } from "./AuthContext";
 import { RequireAuth } from "./RequireAuth";
-import LoginPage, { safeNext } from "./LoginPage";
+import LoginPage, { nextFor, safeNext } from "./LoginPage";
 
 const problem = (status: number, type: string, detail: string, errors?: unknown) =>
   new Response(JSON.stringify({ type, title: "x", status, detail, errors, requestId: "req-7" }), {
@@ -15,6 +15,11 @@ const problem = (status: number, type: string, detail: string, errors?: unknown)
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+function LogoutButton() {
+  const { logout } = useAuth();
+  return <button onClick={() => void logout()}>Logout</button>;
+}
 
 function renderApp(initial: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,6 +31,14 @@ function renderApp(initial: string) {
         element: (
           <RequireAuth>
             <p>halaman rahasia</p>
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/admin/users",
+        element: (
+          <RequireAuth>
+            <LogoutButton />
           </RequireAuth>
         ),
       },
@@ -83,7 +96,7 @@ describe("login", () => {
     await user.click(screen.getByRole("button", { name: "Login" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Username atau password salah.");
-    expect(screen.getByRole("alert")).toHaveTextContent("req-7");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("req-7");
     expect(screen.getByLabelText("Password")).toHaveValue("");
   });
 
@@ -103,6 +116,53 @@ describe("login", () => {
     await screen.findByRole("alert");
     expect(screen.getByLabelText("Username")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getAllByText("wajib diisi")).toHaveLength(2);
+  });
+});
+
+describe("ganti akun", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    document.cookie = "csrf=t; path=/";
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("logout manual ke /login tanpa membawa halaman terakhir", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { id: "a1", username: "admin", isPlatformAdmin: true }));
+    const router = renderApp("/admin/users");
+    await screen.findByRole("button", { name: "Logout" });
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Logout" }));
+
+    expect(await screen.findByRole("heading", { name: "Masuk ke platform" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.search).toBe("");
+  });
+
+  it("next ke halaman admin diabaikan kalau yang login bukan admin", async () => {
+    fetchMock.mockResolvedValueOnce(problem(401, "urn:problem:unauthenticated", ""));
+    const router = renderApp("/login?next=%2Fadmin%2Fusers");
+    await screen.findByLabelText("Username");
+
+    fetchMock.mockResolvedValueOnce(json(201, { id: "v1", username: "viewer", isPlatformAdmin: false }));
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Username"), "viewer");
+    await user.type(screen.getByLabelText("Password"), "rahasia");
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(await screen.findByText("halaman rahasia")).toBeInTheDocument();
+  });
+});
+
+describe("nextFor", () => {
+  it("halaman admin cuma buat Platform Admin", () => {
+    expect(nextFor("/admin/users", { isPlatformAdmin: false })).toBeNull();
+    expect(nextFor("/admin/users", { isPlatformAdmin: true })).toBe("/admin/users");
+    expect(nextFor("/databases", { isPlatformAdmin: false })).toBe("/databases");
+    expect(nextFor(null, { isPlatformAdmin: true })).toBeNull();
   });
 });
 
