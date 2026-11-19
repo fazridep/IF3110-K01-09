@@ -38,7 +38,7 @@ Deadline Milestone 2: 27 November 2026, 13.10 WIB. Bonus kumpul cepat: 23 Novemb
 - [x] halaman SPA job + polling, tombol Jalankan di Approval
 - [x] data uji `make seed-large`: 2 juta row, `UPDATE` tanpa batch 6,7 detik
 - [x] uji migration per batch pakai dataset yang sama (lihat README)
-- [ ] bonus k6
+- [x] bonus k6 (`make loadtest`, hasil dan analisis di README)
 - [ ] jalankan worker lewat docker compose (belum ada Dockerfile)
 
 Kontrak `queue.Executor` dari ADR-013 sudah diisi bagian Zahran (ADR-015).
@@ -189,4 +189,5 @@ Tiap orang nge-tes bagiannya sendiri, minimal jalur berhasil, gagal, dan ditolak
 - 19 Nov (Fazri): sesuaikan spesifikasi v4: migration history mencatat semua attempt (berhasil
   maupun gagal), forward boleh dari migration gagal, actor di log worker
 - 19 Nov (Fazri): asumsi audit log (ADR-016), test end-to-end Playwright (`make e2e`)
+- 19 Nov (Fazri): bonus stress test k6 (`loadtest/stress.js`, `make loadtest`), hasil dan analisis di README
 

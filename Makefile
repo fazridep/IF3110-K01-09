@@ -1,4 +1,4 @@
-.PHONY: e2e run worker seed-large build test test-db-up fmt vet db-up db-down db-logs migrate seed clean frontend-install frontend-dev frontend-build frontend-test
+.PHONY: e2e loadtest run worker seed-large build test test-db-up fmt vet db-up db-down db-logs migrate seed clean frontend-install frontend-dev frontend-build frontend-test
 
 export TEST_DATABASE_URL ?= postgres://test:test@localhost:5437/platform_test?sslmode=disable
 
@@ -56,6 +56,9 @@ frontend-build:
 
 e2e:
 	./scripts/e2e.sh
+
+loadtest:
+	./scripts/loadtest.sh
 
 frontend-test:
 	cd frontend && npm test
