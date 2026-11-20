@@ -196,6 +196,109 @@ Lebih lama dari `UPDATE` sekali jalan karena tiap batch menyalin row ke
 `batch_rows` dan menyimpan isinya sebagai data pemulihan. Gantinya, tiap batch
 bisa di-commit, dilanjutkan, dan dibatalkan sendiri-sendiri.
 
+## Stress test k6 (bonus)
+
+```bash
+make test-db-up
+make loadtest            # STAGE_SECONDS=60 TARGETS=8 ROWS=20000 bisa diubah
+```
+
+`scripts/loadtest.sh` membuat database metadata dan 8 database target kosong
+(masing-masing tabel `load_items` 20.000 row), menjalankan server dan worker
+(`WORKER_CONCURRENCY=4`) dari kode sekarang, lalu menjalankan
+[`loadtest/stress.js`](loadtest/stress.js) lewat image `grafana/k6:1.4.2`.
+
+### Isi script
+
+Dua skenario `ramping-vus` jalan bersamaan:
+
+- **api**: tiap iterasi membaca `GET /api/databases`, detail database, isi
+  tabel, `GET /api/jobs`, dan riwayat migration, lalu jeda 1 detik.
+- **migrations**: tiap iterasi membuat migration
+  (`UPDATE load_items SET counter = counter + 1`), mengajukan dan menyetujui
+  approval, lalu mengirim `POST /api/jobs` **3 kali serentak dengan approval
+  yang sama** (pengiriman job bersamaan ke database yang sama). Ketiganya harus
+  dapat job ID yang sama. Setelah itu job dipantau lewat `GET /api/jobs/{id}`
+  sampai final. Yang dihitung sukses adalah status final job, bukan respons
+  `202`. Database dipilih bergiliran, jadi VU yang jalan bareng mengirim job ke
+  database berbeda dan worker memprosesnya paralel.
+
+Beban normal yang ditetapkan tim adalah 5 user membaca API dan 2 alur
+migration bersamaan. Tiap tahap 60 detik (15 detik naik, 45 detik ditahan):
+normal → tinggi (4x) → puncak (10x baca, 8 alur migration) → pemulihan
+(kembali ke normal).
+
+Threshold:
+
+| Metrik | Batas |
+|--------|-------|
+| `http_req_duration{kind:api}` p95 | < 500 ms |
+| `http_req_duration{kind:submit}` p95 (kirim job) | < 1000 ms |
+| `http_req_failed` | < 1% |
+| `job_success` (status final job) | > 99% |
+| `job_duplicate_mismatch` (kiriman duplikat beda job) | 0 |
+
+Metrik tambahan: `job_queue_wait_ms` (job masuk queue sampai diambil worker),
+`job_duration_ms` (diambil sampai selesai), `job_end_to_end_ms`, dan
+`jobs_done`. Semuanya ditandai per tahap. Setelah k6 selesai, skrip mengecek
+nilai `counter` di tiap database target sama dengan jumlah job sukses ke
+database itu. Kalau ada double commit, nilainya pasti lebih besar.
+
+### Hasil
+
+19 November 2026, laptop i7-12700H (20 thread, 15 GB), Postgres 18 di Docker,
+server dan worker di mesin yang sama, log level info dengan exporter span
+console. Hasil lengkap di [`loadtest/results/summary.md`](loadtest/results/summary.md).
+
+| Tahap | VU (baca + migration) | API p50 / p95 (ms) | Request/detik | Error | Kirim job p95 (ms) | Job selesai | Job sukses | Tunggu queue p50 / p95 (ms) | Durasi job p50 / p95 (ms) |
+|---|---|---|---|---|---|---|---|---|---|
+| normal | 5 + 2 | 3,5 / 12,9 | 42,7 | 0% | 5,6 | 186 | 100% | 35 / 139 | 70 / 99 |
+| tinggi | 20 + 4 | 4,0 / 12,0 | 136,6 | 0% | 6,8 | 415 | 100% | 31 / 144 | 63 / 82 |
+| puncak | 50 + 8 | 5,9 / 15,2 | 321,5 | 0% | 10,3 | 832 | 100% | 82 / 158 | 80 / 109 |
+| pemulihan | 5 + 2 | 5,4 / 12,7 | 90,3 | 0% | 7,6 | 334 | 100% | 50 / 145 | 70 / 93 |
+
+Total 35.602 request dan 1.767 job (sekitar 14 job/detik di puncak), semua
+threshold lolos, 0 kiriman duplikat yang menghasilkan job berbeda, dan cek
+integritas menunjukkan 221 job sukses = counter 221 di tiap database (220 di
+satu database). Nggak ada double commit.
+
+### Analisis per tingkat beban
+
+- **Normal.** API p95 12,9 ms, jauh di bawah threshold 500 ms. p95 sedikit
+  lebih tinggi daripada tahap tinggi karena beberapa request pertama lebih
+  lambat (`GET /api/databases` p95 27 ms di tahap ini, 7,7 ms di tahap tinggi),
+  kemungkinan karena pool koneksi ke database target baru dibuat. Login nggak
+  ikut dihitung, request-nya ditandai `setup`.
+- **Tinggi (4x).** Throughput naik 3x dengan p50 hampir sama. Server belum
+  jenuh. Tunggu queue tetap sekitar 30 ms (p50) karena job baru masuk lebih
+  jarang dari kapasitas 4 worker paralel.
+- **Puncak (10x baca, 8 migration).** Throughput 321 request/detik, p50 naik
+  dari 3,5 ke 5,9 ms dan p95 ke 15,2 ms, error tetap 0%. Tunggu queue p50 naik
+  ke 82 ms: ada 8 alur migration tapi cuma 4 slot worker, jadi sebagian job
+  antre. Tunggu queue p95 di semua tahap sekitar 140–160 ms, didominasi
+  interval polling worker 200 ms, bukan lock. Durasi job naik sedikit (p50 70
+  → 80 ms) karena sampai 4 `UPDATE` jalan paralel di Postgres yang sama.
+- **Pemulihan.** Job dan kirim job kembali ke angka normal. API p50 masih 5,4
+  ms karena datanya membesar, bukan karena server belum pulih. Dari log server,
+  endpoint yang ukuran datanya tetap sudah kembali seperti awal
+  (`GET /api/databases/{id}` p50 3,1 → 3,0 ms, `GET /api/jobs/{id}` 2,2 → 2,2
+  ms), sedangkan `GET /api/databases/{id}/history` (2,3 → 6,2 ms) dan
+  `GET /api/jobs` (2,6 → 5,5 ms) lebih lambat karena tiap database sekarang
+  punya 220-an eksekusi. Request/detik dan jumlah job di tahap ini juga lebih
+  tinggi dari normal karena 15 detik pertamanya masih turun dari puncak, dan
+  job yang selesai di masa tenggang setelah tahap terakhir dihitung di sini.
+
+Catatan dan saran:
+
+- Riwayat migration dikirim utuh tanpa paging. Dengan ratusan eksekusi per
+  database latensinya mulai naik, jadi perlu paging kalau datanya jauh lebih besar.
+- Exporter span console menulis sinkron dan menghasilkan sekitar 500 MB span
+  dalam 5 menit uji ini. Untuk beban tinggi lebih cocok exporter OTLP dengan
+  batching (bonus observability).
+- Tunggu queue bisa dikurangi dengan `WORKER_POLL_INTERVAL` lebih kecil atau
+  menambah proses worker. Lock per database tetap menjaga satu migration per
+  database.
+
 ## Struktur
 
 ```
@@ -214,7 +317,8 @@ internal/              kode backend
   platform/            pondasi tanpa logika fitur, nggak boleh import fitur
     config/ httpx/ obs/ pgerr/ store/ testutil/
 migrations/metadata/   SQL tabel platform
-scripts/               data uji migration besar
+scripts/               data uji migration besar, e2e, dan stress test
+loadtest/              script k6 dan hasil stress test
 docs/                  keputusan desain, API, frontend, observability, progress
 ```
 
