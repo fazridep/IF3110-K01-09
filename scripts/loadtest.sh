@@ -50,8 +50,8 @@ trap cleanup EXIT
 for _ in $(seq 1 50); do curl -sf "http://localhost:$PORT/api/health" >/dev/null && break; sleep 0.2; done
 
 status=0
-docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD/loadtest:/work" -w /work \
-  -e BASE_URL="http://localhost:$PORT" -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+docker run --rm --add-host=host.docker.internal:host-gateway -u "$(id -u):$(id -g)" -v "$PWD/loadtest:/work" -w /work \
+  -e BASE_URL="http://host.docker.internal:$PORT" -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
   -e TARGET_DBS="$(IFS=,; echo "${names[*]}")" -e STAGE_SECONDS="$STAGE_SECONDS" \
   grafana/k6:1.4.2 run --quiet stress.js || status=$?
 
