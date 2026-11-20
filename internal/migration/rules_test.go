@@ -65,6 +65,7 @@ func TestActionRuleLainnya(t *testing.T) {
 		{"failed bisa forward lagi", failed, []Migration{failed}, ActionForward, true},
 		{"failed nggak bisa forward kalau versi di atasnya aktif", failed, []Migration{failed, mig(2, StatusSuccess)}, ActionForward, false},
 		{"failed nggak bisa rollback", failed, []Migration{failed}, ActionRollback, false},
+		{"failed di bawahnya nggak menghalangi forward", mig(3, StatusRolledBack), []Migration{mig(1, StatusSuccess), mig(2, StatusFailed), mig(3, StatusRolledBack)}, ActionForward, true},
 		{"aksi asing", draft, nil, "hapus", false},
 	}
 	for _, tc := range cases {

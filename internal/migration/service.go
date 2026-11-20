@@ -204,7 +204,7 @@ func actionRule(m *Migration, siblings []Migration, action string) error {
 			return notAllowed(fmt.Sprintf("v%d masih aktif di atasnya, forward harus mengikuti urutan", top))
 		}
 		for _, o := range siblings {
-			if (o.Status == StatusRolledBack || o.Status == StatusFailed) && o.Version > top && o.Version < m.Version {
+			if o.Status == StatusRolledBack && o.Version > top && o.Version < m.Version {
 				return notAllowed(fmt.Sprintf("forward harus urut, jalankan forward v%d dulu", o.Version))
 			}
 		}
