@@ -12,55 +12,226 @@ API JSON, database PostgreSQL 18.
 
 ## Kebutuhan
 
-- Go 1.26
-- Node.js 22+ dan npm
-- Docker dengan Docker Compose
+| Perangkat | Versi | Cek |
+|-----------|-------|-----|
+| Go | 1.26 | `go version` |
+| Node.js dan npm | 22+ | `node -v` |
+| Docker + Docker Compose | Compose v2 | `docker compose version` |
+| openssl | apa saja | `openssl version` (buat bikin kunci enkripsi) |
+
+Port yang dipakai:
+
+| Port | Untuk |
+|------|-------|
+| 8080 | server (API + SPA), bisa diganti lewat `APP_PORT` |
+| 5435 | Postgres metadata platform |
+| 5436 | Postgres target contoh (`target_db`) |
+| 5437 | Postgres khusus test, cuma nyala kalau `make test-db-up` |
+| 5173 | Vite dev server, cuma di mode pengembangan |
 
 ## Menjalankan
 
+### Pertama kali
+
 ```bash
+# 1. Konfigurasi
 cp .env.example .env
-# isi CREDENTIAL_ENCRYPTION_KEY, bikin pakai: openssl rand -base64 32
-make db-up        # postgres metadata (5435) dan target (5436)
-make migrate      # bikin tabel platform
-make seed         # bikin akun Platform Admin pertama
-make frontend-install
-make frontend-build
-make run          # http://localhost:8080
-make worker       # terminal lain, yang menjalankan job migration
+openssl rand -base64 32            # salin hasilnya ke CREDENTIAL_ENCRYPTION_KEY di .env
+
+# 2. Database
+make db-up                         # Postgres metadata (5435) dan target contoh (5436)
+make migrate                       # bikin semua tabel platform, aman dijalankan berulang
+
+# 3. Akun Platform Admin pertama (ditanya username dan password)
+make seed
+
+# 4. Frontend SPA
+make frontend-install              # npm ci, sekali atau tiap package-lock.json berubah
+make frontend-build                # hasil build di frontend/dist, disajikan server
 ```
 
-Kalau port 8080 sudah dipakai aplikasi lain, ganti `APP_PORT` di `.env`.
+Lalu jalankan server dan worker di **dua terminal terpisah**:
 
-`docker-compose.yml` sudah nyediain satu database target buat dicoba. Waktu
-nambah koneksi di menu Koneksi, isi:
+```bash
+make run 2> tmp-spans.log          # terminal 1: server API + SPA di http://localhost:8080
+make worker 2> tmp-worker-spans.log  # terminal 2: worker yang mengeksekusi job migration
+```
+
+Buka http://localhost:8080 dan login pakai akun dari `make seed`.
+
+Log JSON (structured log) keluar di stdout, span OpenTelemetry di stderr. Span
+jumlahnya banyak, jadi stderr sebaiknya diarahkan ke file seperti di atas
+supaya terminal tetap kebaca. Tanpa worker, job cuma antre dan nggak pernah
+jalan.
+
+### Menjalankan lagi
+
+Kalau sudah pernah setup:
+
+```bash
+make db-up
+make migrate                       # kalau ada migration baru setelah git pull
+make frontend-build                # kalau ada perubahan frontend setelah git pull
+make run 2> tmp-spans.log          # terminal 1
+make worker 2> tmp-worker-spans.log  # terminal 2
+```
+
+### Mode pengembangan frontend
+
+Buat ngoprek tampilan dengan hot reload, jalankan `make run` seperti biasa lalu
+`make frontend-dev` di terminal lain, dan buka http://localhost:5173. Request
+`/api` di-proxy ke server di port 8080. Detailnya di
+[docs/frontend.md](docs/frontend.md).
+
+### Menghentikan dan reset
+
+```bash
+# Ctrl+C di terminal server dan worker
+make db-down                       # matikan container, data tetap ada
+docker compose down -v             # matikan dan HAPUS semua data (metadata + target)
+```
+
+Setelah `down -v`, ulangi dari `make db-up`, `make migrate`, dan `make seed`.
+
+### Konfigurasi `.env`
+
+| Variabel | Default | Arti |
+|----------|---------|------|
+| `APP_PORT` | `8080` | port server |
+| `APP_ENV` | `development` | `production` bikin cookie `Secure` (wajib HTTPS) |
+| `METADATA_DB_URL` | Postgres di 5435 | database metadata platform |
+| `CREDENTIAL_ENCRYPTION_KEY` | kosong, **wajib diisi** | kunci AES-GCM (32 byte, base64) buat password koneksi target. Server dan worker harus pakai kunci yang sama. Kalau diganti, koneksi yang sudah tersimpan nggak bisa dibuka |
+| `SESSION_*` | 30m, 8h, 15m, 30s | idle timeout, absolute timeout, interval rotasi, grace period (lihat bagian Session) |
+| `LOG_LEVEL` | `info` | `debug` ikut mencatat query ke database metadata |
+| `OTEL_TRACES_EXPORTER` | `console` | `none` mematikan span |
+| `OTEL_SERVICE_NAME` | `db-platform-server` | nama service di log dan span. Kalau baris ini dihapus atau dikosongkan, server tampil sebagai `db-platform-server` dan worker `db-platform-worker`. Kalau diisi, keduanya pakai nama yang sama |
+| `SPA_DIR` | `frontend/dist` | folder hasil build SPA |
+| `WORKER_CONCURRENCY` | `4` | jumlah job paralel per proses worker (beda database) |
+| `WORKER_MAX_ATTEMPTS` | `3` | batas percobaan job yang gagal sementara |
+| `WORKER_POLL_INTERVAL` | `1s` | jeda worker mengecek queue |
+| `WORKER_LEASE_TTL` | `30s` | lama lock database bertahan kalau worker mati |
+| `TEST_DATABASE_URL` | Postgres di 5437 | dipakai `make test` |
+
+### Database target contoh
+
+`docker-compose.yml` sudah menyediakan satu database target. Waktu menambah
+koneksi di menu **Koneksi DB**, isi:
 
 | Field | Nilai |
 |-------|-------|
+| Nama koneksi | bebas, misalnya `toko` |
 | Host | `localhost` |
 | Port | `5436` |
 | Database | `target_db` |
 | Username | `target` |
 | Password | `target` |
-| sslmode | `disable` |
+| SSL mode | `disable` |
 
-## Alur pakai
+Isi data contoh supaya explorer nggak kosong:
 
-1. Login sebagai Platform Admin.
-2. Koneksi: tambah database target, lalu tes koneksinya.
-3. Users: tambah user biasa.
-4. Groups: bikin group, masukin anggota, lalu kasih akses ke database
-   (View Only atau View + Edit).
-5. Login sebagai user tadi. Di Databases kelihatan database yang boleh dibuka,
-   lengkap dengan schema, tabel, kolom, constraint, index, dan datanya.
-6. Migration: bikin draft berisi SQL up dan SQL down (atau tandai
-   irreversible beserta alasannya), pilih mode normal atau per batch.
-7. Ajukan approval. Leader dari semua group yang punya akses ke database itu
-   harus setuju, termasuk untuk rollback dan forward.
-8. Setelah disetujui, tekan Jalankan. Job masuk queue, worker yang
-   mengeksekusi, dan progresnya kelihatan di halaman job.
-9. Riwayat eksekusi ada di halaman migration. Centang Hide rollback buat
-   menyembunyikan eksekusi yang sudah dibatalkan beserta rollback-nya.
+```bash
+docker compose exec db-target psql -U target -d target_db -c \
+  "CREATE TABLE produk (id INT PRIMARY KEY, nama TEXT, harga NUMERIC);
+   INSERT INTO produk VALUES (1, 'sapu', 15000), (2, 'ember', NULL), (3, 'pel', 25000);"
+```
+
+Buat demo mode batch, isi juga tabel besar: `make seed-large` (2 juta row, lihat
+bagian Data uji migration besar).
+
+### Kalau ada masalah
+
+| Gejala | Penyebab dan solusi |
+|--------|---------------------|
+| Server berhenti dengan pesan `CREDENTIAL_ENCRYPTION_KEY` | kunci di `.env` kosong atau bukan base64 32 byte. Bikin dengan `openssl rand -base64 32` |
+| Browser menampilkan "Frontend belum di-build" | jalankan `make frontend-build`, lalu refresh |
+| Error tabel nggak ada atau kolom nggak dikenal setelah `git pull` | jalankan `make migrate` |
+| `pastikan database jalan (make db-up)` | container Postgres belum nyala, jalankan `make db-up` |
+| `address already in use` di port 8080 | ganti `APP_PORT` di `.env` |
+| Job berhenti di status Antre | worker belum jalan, jalankan `make worker` |
+| Tes koneksi gagal "kredensial nggak bisa dibuka" | kunci enkripsi berubah sejak koneksi disimpan. Kembalikan kunci lama, atau ubah koneksi dan isi password lagi |
+| Job lama-lama tetap Belum pasti | database target nggak bisa dihubungi. Nyalakan lagi, lalu tekan Periksa ulang di halaman job |
+
+## Skenario demo
+
+Urutannya mengikuti alur minimum spesifikasi: Login → Access Control → Select
+Database → View Schema/Data → Create Migration → Validation & Review →
+Approval → Queue → Worker → Lock → Revalidation → Execute → Commit/Rollback →
+Update Migration History → Audit Log.
+
+**Persiapan (sebagai Platform Admin)**
+
+1. Login, buka **Koneksi DB**, tambah database target contoh, tekan **Tes
+   Koneksi**, lalu **Simpan**.
+2. **Users**: tambah satu user, misalnya `budi`.
+3. **Groups**: bikin dua group supaya approval-nya butuh dua leader.
+   - `tim-a`: anggota dan leader akun admin, grant **View + Edit** ke `toko`.
+   - `tim-b`: anggota dan leader `budi`, grant **View Only** ke `toko`.
+
+**Explorer**
+
+4. **Databases** → `toko` → tabel `produk`: kolom, constraint, index, dan data
+   (NULL ditampilkan miring).
+
+**Migration, approval, queue, worker**
+
+5. Di halaman database, tekan **Migration** → **Migration baru**. Isi SQL
+   up `ALTER TABLE produk ADD COLUMN stok INT DEFAULT 0;` dan SQL down
+   `ALTER TABLE produk DROP COLUMN stok;`, lalu **Simpan draft**.
+6. **Ajukan Apply**. Panel approval menampilkan `0/2 group setuju`.
+7. Buka **Approval**, tekan **Setujui**, lalu **Konfirmasi Setuju**. Di jendela
+   incognito, login sebagai `budi` dan setujui juga.
+8. Kembali ke migration, tekan **Jalankan**. Halaman job langsung terbuka dan
+   statusnya berubah sendiri dari Antre → Berjalan → Sukses.
+
+**Gagal, forward, rollback, Hide rollback**
+
+9. Bikin migration kedua dengan SQL up `INSERT INTO pelanggan VALUES (1);` dan
+   SQL down `DELETE FROM pelanggan WHERE id = 1;`. Ajukan, setujui dua leader,
+   jalankan. Hasilnya **Gagal**, dan riwayatnya mencatat attempt beserta
+   error-nya.
+10. Bikin tabelnya:
+    `docker compose exec db-target psql -U target -d target_db -c "CREATE TABLE pelanggan (id INT)"`.
+    Lalu **Ajukan Forward**, setujui, dan jalankan. Hasilnya Sukses.
+11. **Ajukan Rollback** untuk migration kedua, setujui, jalankan.
+12. Di halaman migration database, centang **Hide rollback**: pasangan forward
+    dan rollback-nya hilang dari tampilan, sedangkan attempt yang gagal tetap
+    terlihat.
+
+**Akses ditolak**
+
+13. Sebagai `budi` (View Only), buka migration mana pun: nggak ada tombol
+    Ajukan, karena cuma bisa melihat.
+
+**Mode batch dan pemulihan worker**
+
+14. Jalankan `make seed-large`, lalu bikin migration mode **Per batch** dengan
+    tabel `orders_large`, kolom kursor `id`, ukuran batch `100000`, dan SQL dari
+    bagian Data uji migration besar (centang "Simpan data sebelum diubah").
+15. Setelah dijalankan, halaman job menampilkan batch dan row yang sudah
+    committed. Di tengah jalan, matikan worker (Ctrl+C) lalu jalankan lagi
+    `make worker`. Job lanjut dari checkpoint tanpa mengulang batch yang sudah
+    committed (lihat bagian Queue, lock, dan pemulihan worker).
+
+**Paralel dan serial**
+
+16. Bikin database kedua di container target:
+    `docker compose exec db-target createdb -U target target_db2`, tambahkan
+    sebagai koneksi baru (sama seperti `toko`, database `target_db2`), dan beri
+    grant ke kedua group. Jalankan migration di dua database bersamaan:
+    keduanya Berjalan paralel. Migration di database yang sama selalu urut.
+
+**Log dan trace**
+
+17. Ambil `trace_id` dari log `job.enqueued` di output server, lalu cari di
+    output worker. Trace-nya sama dari API sampai query ke database target:
+    `grep <trace_id> tmp-spans.log tmp-worker-spans.log`. Daftar event audit
+    ada di bagian Audit log.
+
+**Mobile**
+
+18. Buka DevTools mode perangkat (misalnya lebar 390 px): menu jadi tombol
+    hamburger, tabel lebar dan editor SQL scroll di dalam komponennya, halaman
+    nggak melebar.
 
 ## Hak akses
 
@@ -91,6 +262,54 @@ dirotasi waktu login, tiap 15 menit, dan waktu privilege naik. Logout, cabut
 admin, keluarin user dari group, atau nonaktifkan user langsung mencabut
 session-nya di server. Password di-hash pakai argon2id. Detailnya ada di
 ADR-003 dan ADR-004.
+
+## Queue, lock, dan pemulihan worker
+
+Setiap eksekusi (apply, forward, rollback, lanjutkan batch) jadi job di tabel
+`migration_jobs`. API langsung membalas job ID, lalu worker mengambil job pakai
+`SELECT ... FOR UPDATE SKIP LOCKED`, jadi job tetap ada walaupun server atau
+worker restart.
+
+**Lock per database.** Waktu mengambil job, worker sekalian memegang lock
+database target di tabel `database_locks`, dalam satu transaction. Lock berupa
+lease: berlaku `WORKER_LEASE_TTL` (default 30 detik) dan diperpanjang tiap
+sepertiganya selama job jalan, termasuk di antara commit batch. Akibatnya:
+
+- satu database cuma menjalankan satu migration, walaupun worker-nya banyak;
+- database berbeda diproses paralel (`WORKER_CONCURRENCY` per proses worker);
+- job di database yang sama diambil urut (FIFO), dan job berikutnya ditahan
+  selama job sebelumnya masih `uncertain` atau `partial`.
+
+Tiap klaim punya token sendiri. Worker yang lease-nya sudah diambil alih nggak
+bisa menyimpan hasil lagi, dan eksekusinya langsung dibatalkan.
+
+**Kalau worker mati.** Worker yang mati mendadak (crash, `kill -9`, mesin mati)
+nggak sempat melepas lock, jadi lease-nya habis sendiri paling lama
+`WORKER_LEASE_TTL` kemudian. Worker lain lalu:
+
+1. menandai job itu `uncertain` dan melepas lock-nya;
+2. memeriksa **bukti commit** di database target
+   (`_dbplatform.job_commits`). Bukti ini ditulis di transaction yang sama
+   dengan SQL migration, jadi ada kalau dan hanya kalau SQL-nya ter-commit;
+3. kalau buktinya ada, job langsung `success` tanpa menjalankan SQL lagi.
+   Kalau nggak ada, SQL dijalankan ulang sebagai attempt berikutnya. Mode batch
+   melanjutkan dari checkpoint terakhir, batch yang sudah committed nggak
+   diulang.
+
+Kalau database target nggak bisa dihubungi waktu pemeriksaan, pemeriksaan
+diulang dengan jeda sampai `WORKER_MAX_ATTEMPTS` kali. Setelah itu job tetap
+`uncertain` dan menahan database itu sampai ada yang menekan **Periksa ulang**
+di halaman job. Worker yang dihentikan baik-baik (Ctrl+C) langsung menandai
+job-nya `uncertain`, jadi nggak perlu menunggu lease habis.
+
+**Retry dan duplikat.** Kegagalan sementara (koneksi putus, deadlock, server
+restart) diulang paling banyak `WORKER_MAX_ATTEMPTS` kali dengan jeda dua kali
+lipat tiap percobaan. Error SQL biasa langsung `failed`. Satu approval cuma bisa
+jadi satu job, dan primary key bukti commit menolak commit kedua, jadi pesan
+duplikat nggak bisa bikin double commit. Semua attempt tercatat di migration
+history.
+
+Detail desainnya di ADR-013 dan ADR-015 ([docs/DECISION.md](docs/DECISION.md)).
 
 ## Tes
 
