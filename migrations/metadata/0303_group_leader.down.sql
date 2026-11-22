@@ -1,0 +1,5 @@
+DROP INDEX IF EXISTS idx_groups_leader_id;
+
+ALTER TABLE groups
+    DROP COLUMN IF EXISTS leader_id;
+

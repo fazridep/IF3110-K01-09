@@ -1,3 +1,5 @@
+// Command server menjalankan platform. Tanpa argumen jalanin HTTP server
+// (server.go); "migrate" dan "seed-admin" buat setup database metadata.
 package main
 
 import (
@@ -5,24 +7,17 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"syscall"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
-	"github.com/if3110/tubes-db-platform/internal/access"
-	"github.com/if3110/tubes-db-platform/internal/admin"
 	"github.com/if3110/tubes-db-platform/internal/auth"
-	"github.com/if3110/tubes-db-platform/internal/config"
-	"github.com/if3110/tubes-db-platform/internal/dbmgmt"
-	"github.com/if3110/tubes-db-platform/internal/migration"
-	"github.com/if3110/tubes-db-platform/internal/store"
-	"github.com/if3110/tubes-db-platform/internal/web"
+	"github.com/if3110/tubes-db-platform/internal/platform/config"
+	"github.com/if3110/tubes-db-platform/internal/platform/store"
 	"github.com/if3110/tubes-db-platform/migrations"
 )
 
@@ -50,60 +45,6 @@ func main() {
 	}
 }
 
-func runServer(cfg *config.Config) {
-	db := mustOpenDB(cfg.MetadataDBURL)
-	defer db.Close()
-
-	view, err := web.NewRenderer()
-	if err != nil {
-		log.Fatal(err)
-	}
-	sessions := auth.NewStore(db, auth.SessionConfig{
-		IdleTimeout:      cfg.SessionIdleTimeout,
-		AbsoluteTimeout:  cfg.SessionAbsoluteTimeout,
-		RotationInterval: cfg.SessionRotationInterval,
-		GracePeriod:      cfg.SessionGracePeriod,
-		Secure:           cfg.IsProduction(),
-	})
-	authHandler := auth.NewHandler(db, sessions, view)
-
-	cipher, err := dbmgmt.NewCipher(cfg.CredentialEncryptionKey)
-	if err != nil {
-		log.Fatalf("%v\nisi CREDENTIAL_ENCRYPTION_KEY di .env, bikin dengan: openssl rand -base64 32", err)
-	}
-	dbStore := dbmgmt.NewStore(db, cipher)
-	pools := dbmgmt.NewManager(dbStore)
-	defer pools.Close()
-
-	// Adapter dari access ke tipe fungsi dbmgmt (ADR-009).
-	perms := access.NewStore(db)
-	isAdmin := func(ctx context.Context, userID uuid.UUID) (bool, error) {
-		u := auth.CurrentUser(ctx)
-		return u != nil && u.ID == userID && access.IsPlatformAdmin(ctx), nil
-	}
-	level := func(ctx context.Context, userID, dbID uuid.UUID) (string, error) {
-		l, err := perms.EffectiveLevel(ctx, userID, dbID)
-		return string(l), err
-	}
-	dbHandler := dbmgmt.NewHandler(dbStore, pools, view, isAdmin, level)
-
-	adminStore := admin.NewStore(db)
-	adminHandler := admin.NewHandler(db, adminStore, sessions, view)
-
-	migService := migration.NewService(db, perms, pools)
-	migHandler := migration.NewHandler(migService, view)
-
-	register := func(mux *http.ServeMux) {
-		dbHandler.RegisterRoutes(mux)
-		adminHandler.RegisterRoutes(mux)
-		migHandler.RegisterRoutes(mux)
-	}
-	handler := web.NewRouter(sessions, authHandler, register, view, cfg.IsProduction())
-
-	log.Printf("server jalan di http://localhost:%s (env=%s)", cfg.AppPort, cfg.AppEnv)
-	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handler))
-}
-
 func runMigrate(cfg *config.Config) {
 	db := mustOpenDB(cfg.MetadataDBURL)
 	defer db.Close()
@@ -124,25 +65,41 @@ func runSeedAdmin(cfg *config.Config) {
 	db := mustOpenDB(cfg.MetadataDBURL)
 	defer db.Close()
 
+	in := bufio.NewReader(os.Stdin)
 	fmt.Print("Username admin: ")
-	username, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	username, _ := in.ReadString('\n')
 	username = strings.TrimSpace(username)
 	fmt.Print("Password: ")
-	password, err := term.ReadPassword(int(syscall.Stdin))
+	password, err := readPassword(in)
 	fmt.Println()
 	if err != nil {
 		log.Fatalf("seed-admin: baca password: %v", err)
 	}
 
-	id, err := auth.SeedAdmin(context.Background(), db, username, string(password))
+	id, err := auth.SeedAdmin(context.Background(), db, username, password)
 	if err != nil {
 		log.Fatalf("seed-admin: %v", err)
 	}
 	log.Printf("seed-admin: admin %s dibuat (id %s)", username, id)
 }
 
-func mustOpenDB(url string) *pgxpool.Pool {
-	db, err := store.Open(context.Background(), url)
+// readPassword menyembunyikan ketikan di terminal. Kalau stdin bukan terminal
+// (dipipe, misalnya dari scripts/e2e.sh), password dibaca sebagai satu baris.
+func readPassword(in *bufio.Reader) (string, error) {
+	fd := int(syscall.Stdin)
+	if term.IsTerminal(fd) {
+		b, err := term.ReadPassword(fd)
+		return string(b), err
+	}
+	line, err := in.ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+func mustOpenDB(url string, configure ...func(*pgxpool.Config)) *pgxpool.Pool {
+	db, err := store.Open(context.Background(), url, configure...)
 	if err != nil {
 		log.Fatalf("%v\npastikan database jalan (make db-up) dan METADATA_DB_URL benar", err)
 	}

@@ -12,8 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/if3110/tubes-db-platform/internal/platform/pgerr"
 )
 
 var (
@@ -67,20 +68,29 @@ func (in *Input) normalize() {
 	}
 }
 
+// ValidationError input koneksi yang salah. Field pakai nama JSON, supaya SPA
+// bisa nampilin pesannya di kolom yang tepat.
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
 func (in Input) validate() error {
 	switch {
 	case in.Name == "":
-		return errors.New("nama koneksi wajib diisi")
+		return &ValidationError{"name", "nama koneksi wajib diisi"}
 	case in.Host == "":
-		return errors.New("host wajib diisi")
+		return &ValidationError{"host", "host wajib diisi"}
 	case in.Port < 1 || in.Port > 65535:
-		return errors.New("port harus antara 1 dan 65535")
+		return &ValidationError{"port", "port harus antara 1 dan 65535"}
 	case in.Database == "":
-		return errors.New("nama database wajib diisi")
+		return &ValidationError{"database", "nama database wajib diisi"}
 	case in.Username == "":
-		return errors.New("username wajib diisi")
+		return &ValidationError{"username", "username wajib diisi"}
 	case !sslModes[in.SSLMode]:
-		return fmt.Errorf("sslmode %q tidak dikenal, pilih disable, allow, prefer, require, verify-ca, atau verify-full", in.SSLMode)
+		return &ValidationError{"sslmode", fmt.Sprintf("sslmode %q tidak dikenal, pilih disable, allow, prefer, require, verify-ca, atau verify-full", in.SSLMode)}
 	}
 	return nil
 }
@@ -122,7 +132,7 @@ func (s *Store) Create(ctx context.Context, in Input) (uuid.UUID, error) {
 	// Waktu edit password kosong berarti pakai yang lama, tapi koneksi baru
 	// belum punya password lama.
 	if in.Password == "" {
-		return uuid.Nil, errors.New("password wajib diisi")
+		return uuid.Nil, &ValidationError{"password", "password wajib diisi"}
 	}
 	sealed, err := s.cipher.Seal(in.Password)
 	if err != nil {
@@ -176,8 +186,7 @@ func (s *Store) Update(ctx context.Context, id uuid.UUID, in Input) error {
 
 func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.db.Exec(ctx, `DELETE FROM database_connections WHERE id=$1`, id)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if pgerr.IsForeignKeyViolation(err) {
 		return ErrInUse
 	}
 	if err != nil {
@@ -247,8 +256,7 @@ func (s *Store) query(ctx context.Context, where string, args ...any) ([]Connect
 }
 
 func mapWriteError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if pgerr.IsUniqueViolation(err) {
 		return ErrDuplicateName
 	}
 	return fmt.Errorf("dbmgmt: simpan koneksi: %w", err)

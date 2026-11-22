@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/if3110/tubes-db-platform/internal/platform/obs"
 )
 
 const (
@@ -67,7 +70,7 @@ func (m *Manager) Pool(ctx context.Context, id uuid.UUID) (*pgxpool.Pool, error)
 	}
 
 	// Di luar lock, konek ke host yang mati bisa makan beberapa detik.
-	pool, err := newPool(ctx, dsn)
+	pool, err := newPool(ctx, dsn, c.Name)
 	if err != nil {
 		return nil, &ConnectError{Host: c.Host, Port: c.Port, Database: c.Database, Reason: connectReason(err), Err: err}
 	}
@@ -109,7 +112,7 @@ func (m *Manager) Test(ctx context.Context, in Input) error {
 		Name: in.Name, Host: in.Host, Port: in.Port,
 		Database: in.Database, Username: in.Username, SSLMode: in.SSLMode,
 	}
-	pool, err := newPool(ctx, c.DSN(in.Password))
+	pool, err := newPool(ctx, c.DSN(in.Password), c.Name)
 	if err != nil {
 		return &ConnectError{Host: c.Host, Port: c.Port, Database: c.Database, Reason: connectReason(err), Err: err}
 	}
@@ -138,11 +141,13 @@ func (m *Manager) Close() {
 	}
 }
 
-func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+func newPool(ctx context.Context, dsn, name string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
+	// Semua SQL ke database target masuk log dan trace, termasuk yang read-only.
+	obs.InstrumentPool(cfg, name, slog.LevelInfo)
 	cfg.MaxConns = maxConnsPerTarget
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.ConnConfig.ConnectTimeout = connectTimeout

@@ -1,0 +1,64 @@
+:root {
+  --bg:          #ffffff;
+  --bg-2:        #f5f8fd;
+  --surface:     #ffffff;
+  --surface-2:   #f2f6fc;
+  --line:        #e1e8f2;
+  --line-2:      #c9d4e3;
+
+  --text:        #1e2633;
+  --heading:     #0a1325;
+  --muted:       #536074;
+  --faint:       #5c697c;
+
+  --accent:      #1d5fd1;
+  --accent-2:    #164aa8;
+  --accent-ink:  #ffffff;
+  --accent-wash: rgba(29, 95, 209, .08);
+  --accent-line: rgba(29, 95, 209, .32);
+
+  --ok:        #12733f;  --ok-wash:     rgba(18, 115, 63, .09);
+  --warn:      #9a5200;  --warn-wash:   rgba(196, 110, 0, .11);
+  --danger:    #b42318;  --danger-wash: rgba(180, 35, 24, .08);
+  --info:      #1d5fd1;  --info-wash:   rgba(29, 95, 209, .08);
+  --neutral:   #536074;  --neutral-wash: rgba(83, 96, 116, .09);
+
+  --tk-key:  #6d3fd8;
+  --tk-fn:   #1d5fd1;
+  --tk-str:  #0f7a52;
+  --tk-num:  #a8460b;
+  --tk-type: #0d6c85;
+  --tk-com:  #5c697c;
+
+  --shadow-sm: 0 1px 2px rgba(10, 19, 37, .05), 0 4px 14px rgba(10, 19, 37, .05);
+  --shadow-md: 0 2px 4px rgba(10, 19, 37, .04), 0 18px 48px rgba(10, 19, 37, .10);
+
+  --sans: "Geist Variable", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --header-h: 60px;
+  --sidebar-w: 248px;
+  --content-max: 1200px;
+  --gutter: 16px;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0f1c; --bg-2: #0e1526; --surface: #111a2d; --surface-2: #152036;
+  --line: #22304a; --line-2: #33435f;
+  --text: #d4dbe6; --heading: #f2f5fa; --muted: #9aa6b8; --faint: #8d99ab;
+  --accent: #6ea4ff; --accent-2: #94bbff; --accent-ink: #061430;
+  --accent-wash: rgba(110, 164, 255, .12); --accent-line: rgba(110, 164, 255, .38);
+  --ok: #5fd49b; --ok-wash: rgba(95, 212, 155, .12);
+  --warn: #f5b759; --warn-wash: rgba(245, 183, 89, .12);
+  --danger: #ff8a80; --danger-wash: rgba(255, 138, 128, .12);
+  --info: #6ea4ff; --info-wash: rgba(110, 164, 255, .12);
+  --neutral: #9aa6b8; --neutral-wash: rgba(154, 166, 184, .12);
+  --tk-key: #c6a6ff; --tk-fn: #82b4ff; --tk-str: #8fdcaa; --tk-num: #ffb27a; --tk-type: #6fd3e3; --tk-com: #7f8998;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .25);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, .3), 0 18px 48px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}

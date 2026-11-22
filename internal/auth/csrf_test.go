@@ -86,3 +86,41 @@ func TestCSRFCookieSecureInProduction(t *testing.T) {
 		t.Fatalf("cookie csrf harus Secure di production, dapat: %+v", cookies)
 	}
 }
+
+func TestCSRFMiddleware_APIHeader(t *testing.T) {
+	handler := auth.CSRF(false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	send := func(header string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/api/session", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "token-benar"})
+		if header != "" {
+			req.Header.Set("X-CSRF-Token", header)
+		}
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := send("token-benar"); rr.Code != http.StatusNoContent {
+		t.Errorf("header X-CSRF-Token yang benar harus lolos, dapat %d", rr.Code)
+	}
+	rr := send("token-salah")
+	if rr.Code != http.StatusForbidden || rr.Header().Get("Content-Type") != "application/problem+json" {
+		t.Fatalf("route /api harus dibalas 403 problem+json, dapat %d %q", rr.Code, rr.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(rr.Body.String(), `"type":"urn:problem:csrf"`) {
+		t.Errorf("type problem harus urn:problem:csrf: %s", rr.Body.String())
+	}
+}
+
+func TestCSRFCookieReadableBySPA(t *testing.T) {
+	handler := auth.CSRF(false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	c := rr.Result().Cookies()[0]
+	if c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("cookie csrf harus bisa dibaca JS dan SameSite=Strict: %+v", c)
+	}
+}

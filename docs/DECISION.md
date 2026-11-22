@@ -99,7 +99,7 @@ berubah, bikin file baru.
 
 ## ADR-006 Frontend server-rendered dengan layout bersama
 
-Status: diterima, 20 Okt
+Status: diterima, 20 Okt. Poin interface `Renderer` per package diganti ADR-012.
 
 Konteks: spesifikasi menyarankan Go template, dan session berbasis cookie lebih
 gampang tanpa SPA.
@@ -157,7 +157,7 @@ ulang password-nya.
 
 ## ADR-009 dbmgmt menunggu access lewat fungsi yang di-inject
 
-Status: selesai, 22 Okt. Dua fungsi di `main.go` sudah disambung ke `access`.
+Status: diganti ADR-012, 4 Nov.
 
 Konteks: `dbmgmt` butuh dua hal dari `access`: apakah user Platform Admin, dan
 level aksesnya ke satu database. Package `access` belum ada waktu dbmgmt
@@ -219,3 +219,244 @@ sama kayak user lain.
 
 Akibat: admin bisa ngatur `/admin/*` tanpa otomatis bisa baca data. Buat demo,
 admin perlu dimasukin ke group dulu.
+
+## ADR-012 Helper HTTP bersama dan dbmgmt pakai access langsung
+
+Status: diterima, 4 Nov
+
+Konteks: setelah semua fitur jadi, ada beberapa hal yang ditulis ulang di tiap
+package:
+- interface `Renderer` ada empat salinan (auth, admin, dbmgmt, migration);
+- tiga template `error.html` yang isinya sama, cuma beda tautan kembali;
+- tiap handler `fail` nulis `WriteHeader` sebelum render, jadi kalau template
+  gagal, client tetap dapat status lama dengan body error;
+- cek kode error PostgreSQL (`23505`, `23503`) di-hardcode di dbmgmt dan migration;
+- `dbmgmt` masih pakai `AdminChecker`/`LevelResolver` dan konstanta level
+  sendiri dari ADR-009, padahal `access` sudah ada. Akibatnya aturan "admin
+  atau bukan" ada di dua tempat (`dbmgmt.requireAdmin` dan
+  `access.RequirePlatformAdmin`).
+
+Keputusan:
+- Package leaf `internal/httpx` (nggak import package internal lain) berisi
+  `Renderer`, `Error` + `ErrorPage`, dan `PathUUID`. Semua handler pakai ini.
+  `Renderer` punya `RenderStatus`, dan status baru ditulis setelah template
+  berhasil dirender.
+- Satu halaman error bersama `web/templates/shared/error.html`. Tiap fitur cuma
+  ngisi pesan dan tautan kembali.
+- Package leaf `internal/pgerr` buat `IsUniqueViolation` dan `IsForeignKeyViolation`.
+- `dbmgmt` import `access`: route admin lewat `access.RequirePlatformAdmin`,
+  level akses lewat interface kecil `dbmgmt.Permissions`
+  (`EffectiveLevel(...) (access.Level, error)`) yang dipenuhi `access.Store`.
+- `admin` bergantung ke interface `admin.Sessions`, bukan `*auth.Store`, dan
+  validasi level grant pakai `access.Level.Valid`.
+- `cmd/server/server.go` satu-satunya tempat package fitur disambung.
+
+Arah import sekarang:
+
+```
+httpx, pgerr, config        (leaf, dipakai siapa saja)
+auth  <-  access  <-  admin
+            ^
+          dbmgmt  <-  migration (lewat interface Targets & Permissions)
+```
+
+Akibat: nambah fitur baru cukup implement `httpx.Renderer` di test palsu dan
+pakai `httpx.Error`. Aturan izin benar-benar cuma di `access` (ADR-001).
+Konsekuensinya `dbmgmt` sekarang ikut ke-build ulang kalau `access` berubah,
+tapi kontraknya cuma satu method.
+
+## ADR-013 Queue migration di PostgreSQL, lock berupa lease
+
+Status: diterima, 8 Nov
+
+Konteks: spesifikasi M2 minta semua eksekusi lewat queue dan worker. Satu
+database cuma boleh menjalankan satu migration, job harus selamat dari restart,
+pesan duplikat nggak boleh bikin double commit, dan kalau hasil commit belum
+pasti, migration berikutnya ditahan.
+
+Keputusan:
+- Queue berupa tabel `migration_jobs`, diambil pakai `FOR UPDATE SKIP LOCKED`.
+  Nggak butuh broker baru, dan masuk queue bisa satu transaction dengan data lain.
+- Satu approval jadi satu job (`UNIQUE (approval_id)`). Eksekusi dipicu eksplisit
+  lewat `POST /api/jobs`, bukan otomatis saat approval terakhir masuk, supaya API
+  bisa mengembalikan job ID dan bisa aman dipanggil ulang. `SetOnApproved` di
+  package approval nggak dipakai.
+- Lock berupa lease di `database_locks`, diambil satu transaction dengan klaim
+  job. Worker memperpanjang tiap sepertiga `WORKER_LEASE_TTL`. Tiap klaim punya
+  `lease_token`, jadi worker yang lease-nya sudah diambil alih nggak bisa nulis
+  hasil lagi, dan eksekusinya dibatalkan.
+- FIFO per database: job dilewati kalau ada job lebih lama di database yang sama
+  yang masih `queued`, `running`, `uncertain`, atau `partial`. Ini yang menahan
+  migration berikutnya.
+- Bukti commit ditulis di database target (`_dbplatform.job_commits`), satu
+  transaction dengan SQL migration. Primary key `job_id` membuat commit kedua
+  gagal, jadi duplikat nggak bisa double commit. Schema ini disembunyikan dari viewer.
+- Retry cuma buat kegagalan sementara (`IsTransient`), dibatasi `WORKER_MAX_ATTEMPTS`,
+  dengan jeda dua kali lipat plus jitter. Error SQL biasa langsung `failed`.
+
+Pemulihan lock waktu worker mati: lease habis sendiri paling lama `WORKER_LEASE_TTL`
+kemudian. Worker lain menandai job-nya `uncertain` dan melepas lock. Sebelum
+mengulang, `Executor.Verify` memeriksa bukti commit: kalau ada, job langsung
+`success`. Kalau belum, SQL dijalankan ulang. Kalau target nggak bisa dihubungi,
+pemeriksaan diulang sampai batas, lalu job tetap `uncertain` dan menahan database
+sampai ada yang menekan Periksa ulang (`POST /api/jobs/{id}/recheck`).
+
+Kontrak buat package migration, `queue.Executor`:
+- `Execute` menjalankan SQL dan wajib memanggil `queue.RecordCommit` di transaction
+  yang sama. Balikan `queue.Partial(err)` kalau sebagian batch sudah committed,
+  `queue.Uncertain(err)` kalau COMMIT putus, `queue.Transient(err)` kalau aman diulang.
+- `Verify` mengecek bukti, cukup `queue.CommitRecorded`.
+- `Finalize` memperbarui data milik migration waktu job selesai, dan harus aman
+  dipanggil ulang.
+- Progres batch dilaporkan lewat `Reporter.Report`.
+- Melanjutkan job partial: `POST /api/jobs` dengan approval berjenis `batch` dan
+  `resumeJobId`. Job lama jadi `superseded`, job baru punya `ResumesJobID`.
+
+Akibat: `migration.Executor` sekarang baru mendukung `apply` dalam satu transaction.
+`rollback`, `forward`, dan `batch` ditolak sampai model up/down dan riwayat
+eksekusi ada. Eksekusi langsung `POST /migrations/{id}/execute` dari M1 juga masih
+ada dan melewati approval, harus dihapus waktu halaman migration pindah ke SPA.
+
+Update 9 Nov (ADR-015): `rollback`, `forward`, dan `batch` sudah didukung, dan
+halaman migration Go template beserta `POST /migrations/{id}/execute` sudah
+dihapus. Job partial sekarang bisa digantikan approval `batch` atau `rollback`.
+Kalau `resumeJobId` nggak dikirim, `queue.Service.Submit` mencari job partial
+milik migration itu sendiri.
+
+## ADR-014 Struktur folder: fitur dan platform
+
+Status: diterima, 8 Nov
+
+Konteks: `internal/` sudah 15 package sejajar, campuran fitur dan pondasi.
+`web/` di root cuma berisi template yang dipakai `internal/web`, dan `PROGRESS.md`
+terpisah dari dokumen lain.
+
+Keputusan:
+- Pondasi tanpa logika fitur pindah ke `internal/platform/`: `config`, `httpx`,
+  `obs`, `pgerr`, `store`, `testutil`. Aturannya, package di situ nggak boleh
+  import package fitur.
+- Package fitur tetap di `internal/<fitur>`.
+- `internal/web` tetap di luar `platform`, karena menyusun route dan bergantung ke
+  `auth`.
+- Template pindah ke `internal/web/templates`, folder `web/` di root dihapus.
+- `PROGRESS.md` pindah ke `docs/`, dan `frontend/src/auth` jadi `src/features/auth`.
+
+Akibat: semua import `internal/{config,httpx,obs,pgerr,store,testutil}` berubah.
+Branch yang masih jalan cukup mengganti path import itu setelah rebase. Path lama
+di ADR sebelumnya sengaja dibiarkan sebagai catatan waktu keputusan dibuat.
+
+## ADR-015 Migration up/down, riwayat eksekusi, dan mode batch
+
+Status: diterima, 9 Nov
+
+Konteks: spesifikasi M2 minta tiap migration punya SQL up dan down (atau
+irreversible beserta alasannya), rollback cuma dari migration aktif terakhir,
+forward urut, semua eksekusi tercatat, history cuma berisi yang committed dan
+nggak boleh ditimpa, plus mode batch dengan checkpoint.
+
+Keputusan:
+- `database_migrations` dapat kolom `down_sql`, `irreversible`,
+  `irreversible_reason`, `mode`, dan konfigurasi batch. Isinya cuma bisa diubah
+  selama `draft`. Mengubah draft membatalkan approval yang belum jadi job,
+  dan ditolak kalau sudah ada job yang antre atau jalan.
+- Status migration jadi posisinya di database: `draft`, `running` (apply
+  pertama), `success` (aktif), `failed`, `rolled_back`, `partial`, dan
+  `partially_reverted`. Rollback atau forward yang gagal nggak mengubah status.
+- Apply yang gagal jadi `failed` cuma kalau SQL-nya sempat dikirim ke database
+  target (`migration_executions.sql_started`). Kalau gagal sebelum itu, misalnya
+  target nggak bisa dihubungi sampai percobaan habis atau tabel batch hilang,
+  migration balik ke `draft` beserta pesan error-nya. SQL yang belum pernah
+  dieksekusi belum immutable, jadi cukup diajukan approval lagi tanpa bikin
+  migration baru. Eksekusi yang gagal tetap tercatat di riwayat.
+- Satu eksekusi (apply, forward, rollback) satu baris di `migration_executions`.
+  ID eksekusi beda dengan ID job, karena eksekusi batch bisa dikerjakan beberapa
+  job (retry atau dilanjutkan). Rollback menyimpan `reverts_execution_id`.
+- `migration_history` cuma diisi waktu eksekusi selesai dan committed. Isinya
+  salinan SQL yang dijalankan, versi, pelaksana, dan waktu. Trigger menolak
+  UPDATE dan DELETE.
+- Aturan urutan (`actionRule`): rollback cuma buat migration dengan versi
+  tertinggi yang masih berlaku dan nggak irreversible. Forward cuma buat
+  migration `rolled_back` terendah di atas yang masih berlaku. Apply ditahan
+  kalau ada migration lain yang `partial` atau `partially_reverted`.
+- Aturan itu dicek dua kali: waktu approval diajukan (hook
+  `approval.SetActionCheck`, balas 409 `action-not-allowed`) dan waktu worker
+  mengambil job (revalidasi).
+- Hide rollback memasangkan lewat execution ID: rollback sukses dan eksekusi
+  yang dibatalkannya disembunyikan. Rollback gagal dan eksekusi gagal tetap
+  terlihat. Filternya cuma di tampilan, data nggak dihapus.
+
+Mode batch:
+- User mengisi tabel, kolom kursor (wajib unik, dicek ke database target), dan
+  ukuran batch. Tiap batch, worker mengisi temp table `batch_rows` dengan row
+  berikutnya (`WHERE key > kursor ORDER BY key LIMIT ukuran`), lalu menjalankan
+  SQL up. SQL up dan down wajib memakai `batch_rows`.
+- Cakupan ditentukan sekali waktu eksekusi mulai: kunci terbesar saat itu
+  disimpan di `_dbplatform.batch_scope`. Row yang masuk belakangan nggak ikut.
+- Checkpoint (`_dbplatform.batch_checkpoints`: eksekusi, nomor batch, rentang
+  kursor, jumlah row) ditulis di database target, satu transaction dengan
+  perubahan batch-nya. Primary key (eksekusi, batch) mencegah batch yang sama
+  ke-commit dua kali. Metadata cuma menyimpan cerminnya buat tampilan.
+- Kalau opsi data pemulihan dicentang, isi row sebelum diubah disimpan sebagai
+  JSONB di `_dbplatform.batch_backup`. Waktu rollback, `batch_rows` diisi dari
+  situ, jadi SQL down bisa mengembalikan nilai persis.
+- Batch gagal: cuma transaction batch itu yang batal. Kalau sudah ada batch
+  committed, hasilnya `queue.Partial` dan migration jadi `partial`. Kegagalan
+  sementara diulang worker dan lanjut dari checkpoint.
+- Lanjutkan (`batch`) meneruskan eksekusi yang sama dari checkpoint. Rollback
+  membatalkan batch yang sudah committed urut dari batch terakhir. Kalau
+  berhenti di tengah, jadi `partially_reverted` dan rollback berikutnya
+  melanjutkan dari batch yang belum dibatalkan.
+- Bukti commit job (`queue.RecordCommit`) ditulis di transaction terakhir
+  setelah semua batch selesai. Job yang terputus di tengah diulang, dan batch
+  yang sudah ada checkpoint-nya dilewati.
+
+Akibat: database target dapat schema `_dbplatform` berisi tiga tabel tambahan.
+Data pemulihan bikin batch lebih lambat dan makan tempat, jadi opsional.
+Migration M1 yang sudah jalan ditandai irreversible karena nggak punya SQL down.
+
+Update 19 Nov (spesifikasi v4, revisi 16 Nov): migration history sekarang
+mencatat semua attempt, berhasil maupun gagal, bukan cuma eksekusi yang
+committed. Dua poin di atas diganti:
+- `migration_history` jadi satu baris per attempt job (migration `0404`), dengan
+  `job_id`, `attempt`, `status` (`success`, `failed`, `partial`, `uncertain`),
+  `error`, salinan SQL, versi, pelaksana (pembuat job), dan waktu. Tetap
+  append-only lewat trigger. Unique `(job_id, attempt, status)` mencegah
+  Finalize yang dipanggil ulang menulis baris kedua.
+- Attempt yang nggak sukses dicatat `Executor.Execute` begitu SQL-nya selesai
+  dicoba. Attempt sukses dicatat `Finalize` satu transaction dengan status
+  eksekusinya, termasuk yang baru terbukti sukses lewat `Verify`. Revalidasi
+  yang gagal sebelum eksekusi dibuat nggak dicatat, karena belum ada SQL yang
+  dijalankan.
+- `Execution.Committed` sekarang berarti ada attempt sukses.
+- Forward juga boleh untuk migration `failed` ("attempt gagal boleh di-forward
+  lagi"). SQL-nya tetap yang sama, dan urutan linear tetap berlaku: kalau versi
+  di atasnya sudah aktif, forward ditolak.
+
+Log worker juga membawa `actor` dan `actor_id` (pembuat job), karena worker
+nggak punya request login.
+
+## ADR-016 Audit log berupa structured log, bukan tabel
+
+Status: diterima, 19 Nov. Bisa berubah kalau Q&A menjawab lain.
+
+Konteks: alur minimum spesifikasi diakhiri "Audit Log", tapi spesifikasi nggak
+menjelaskan bentuknya. Bagian Activity Logging minta "catat aktivitas penting
+dan setiap eksekusi SQL" dan menegaskan "Log tidak disimpan di database
+platform dan tidak wajib ditampilkan melalui SPA". Bagian Hide rollback menyebut
+"filter tidak menghapus data riwayat maupun audit log".
+
+Keputusan:
+- Audit log adalah structured log JSON (`log/slog`) dari server dan worker ke
+  stdout. Nggak ada tabel `audit_logs`, supaya nggak bertentangan dengan aturan
+  log di atas.
+- Jejak perubahan database yang harus persisten ada di `migration_history`
+  (append-only, tiap attempt: siapa, kapan, SQL apa, statusnya).
+- Semua aksi yang mengubah data punya event sendiri dengan `actor`, `trace_id`,
+  dan `request_id` atau `job_id`. Daftar event-nya di README bagian Audit log.
+- Kalimat di Hide rollback cukup dibaca sebagai "filter cuma di tampilan".
+
+Akibat: audit log bisa dicari lewat log (grep, atau backend log terpusat kalau
+bonus observability dikerjakan), bukan lewat SPA. Kalau asisten menjawab audit
+log wajib di database, cukup tambah tabel `audit_logs` dan tulis ke situ dari
+titik-titik event yang sama.
+
