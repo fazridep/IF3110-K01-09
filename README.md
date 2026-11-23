@@ -104,7 +104,7 @@ Setelah `down -v`, ulangi dari `make db-up`, `make migrate`, dan `make seed`.
 | `SESSION_*` | 30m, 8h, 15m, 30s | idle timeout, absolute timeout, interval rotasi, grace period (lihat bagian Session) |
 | `LOG_LEVEL` | `info` | `debug` ikut mencatat query ke database metadata |
 | `OTEL_TRACES_EXPORTER` | `console` | `none` mematikan span |
-| `OTEL_SERVICE_NAME` | `db-platform-server` | nama service di log dan span. Kalau baris ini dihapus atau dikosongkan, server tampil sebagai `db-platform-server` dan worker `db-platform-worker`. Kalau diisi, keduanya pakai nama yang sama |
+| `OTEL_SERVICE_NAME` | kosong | nama service di log dan span. Kalau kosong, server tampil sebagai `db-platform-server` dan worker `db-platform-worker`. Kalau diisi, keduanya pakai nama yang sama |
 | `SPA_DIR` | `frontend/dist` | folder hasil build SPA |
 | `WORKER_CONCURRENCY` | `4` | jumlah job paralel per proses worker (beda database) |
 | `WORKER_MAX_ATTEMPTS` | `3` | batas percobaan job yang gagal sementara |
